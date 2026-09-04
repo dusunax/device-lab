@@ -22,30 +22,26 @@
 
 ```text
 devices/
-  {alias}/
-    README.md
-    arduino/
-    docs/
+  snow/
+    snow_status_card/
 
-experiments/
-  epaper/
-  amoled/
-  wifi/
-  audio/
+vendor/
+  waveshare_epaper_1in54g/
 
-shared/
-  arduino/
-  docs/
-
-references/
+docs/
+  snow/
+  shared/
 ```
 
-## 문서 관리 원칙
+## 구조 원칙
 
-- 특정 기기 문서는 `devices/{alias}/docs/`에 둡니다.
-- 최상위 `docs/`에는 특정 기기 문서를 복제하지 않습니다.
-- 여러 기기에서 공통으로 쓰는 문서만 `shared/docs/`로 분리합니다.
-- 체크리스트 상태는 의도나 계획이 아니라 실제 확인 결과 기준으로 표시합니다.
+- 기기별 실행 코드는 `devices/{alias}/` 아래에 둡니다.
+- 외부 기반 드라이버 코드는 `vendor/` 아래에 둡니다.
+- 문서는 모두 `docs/` 아래에서 관리합니다.
+- 특정 기기 문서는 `docs/{alias}/`에 둡니다.
+- 여러 기기에 공통으로 쓰는 문서는 `docs/shared/`에 둡니다.
+- 빈 폴더 유지만을 위한 `.gitkeep`은 두지 않습니다.
+- 폴더 깊이와 폴더 개수는 실제 필요가 생길 때만 늘립니다.
 
 ## 보안 원칙
 
