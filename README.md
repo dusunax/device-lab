@@ -14,7 +14,8 @@
 
 ```text
 e-paper/
-  status-card/
+  ESP32S3/
+    snow-status-card/
 
 vendor/
   waveshare_epaper_1in54g/
