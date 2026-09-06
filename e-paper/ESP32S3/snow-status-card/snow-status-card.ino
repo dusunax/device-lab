@@ -1,10 +1,13 @@
 // Snow status-card firmware
 // Expected Arduino IDE sketch path: e-paper/ESP32S3/snow-status-card/snow-status-card.ino
-// Includes Serial JSON telemetry, ADC battery voltage checks, and I2C scanner diagnostics.
+// Includes Serial JSON telemetry, ADC battery voltage checks, I2C scanner diagnostics, and BLE advertising.
 
 #include <WiFi.h>
 #include <Wire.h>
 #include <time.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
 #include <esp_adc/adc_oneshot.h>
 #include <esp_adc/adc_cali.h>
 #include <esp_adc/adc_cali_scheme.h>
@@ -22,7 +25,7 @@
 #error "Snow needs Tools > USB CDC On Boot > Enabled to show Serial Monitor logs. Enable it, then compile/upload again."
 #endif
 
-#define SNOW_FIRMWARE_VERSION "0.0.3"
+#define SNOW_FIRMWARE_VERSION "0.0.4"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
 #define SNOW_BATTERY_ADC_UNIT ADC_UNIT_1
@@ -32,14 +35,80 @@
 #define SNOW_BATTERY_DIVIDER_RATIO 2.0f
 #define SNOW_BATTERY_MIN_MV 3000
 #define SNOW_BATTERY_FULL_MV 4120
+#define SNOW_BLE_DEVICE_NAME "Snow"
+#define SNOW_BLE_SERVICE_UUID "7d8c0f2a-6f8a-4d4c-9d4a-0a2c0f8b1540"
 
 UBYTE *image = NULL;
 UWORD imageSize = 0;
 
 bool wifiOk = false;
 bool batteryOk = false;
+bool bleOk = false;
+bool bleConnected = false;
 int lastBatteryVoltageMv = 0;
 char dateLine[16] = "NO DATE";
+
+// BLE advertising starts early in setup(), well before the e-paper module,
+// image buffer, and Paint state are initialized. A client can connect during
+// that window, so BLE callbacks must not attempt a redraw until the first
+// showOpenFace() call in setup() has actually completed.
+bool displayReady = false;
+
+void showOpenFace();  // Defined below; needed here because callbacks trigger a redraw.
+
+class SnowBleServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer* server) override {
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_CONNECTED, "BLE client connected", "{\"device_name\":\"Snow\"}");
+    bleConnected = true;
+    // Connect/disconnect is a rare, meaningful state change, so a full
+    // e-paper refresh here is an intentional exception to "draw once only" —
+    // but only once the display is actually ready to be drawn to.
+    if (displayReady) {
+      showOpenFace();
+    }
+  }
+
+  void onDisconnect(BLEServer* server) override {
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_DISCONNECTED, "BLE client disconnected", "{\"device_name\":\"Snow\"}");
+    bleConnected = false;
+    if (displayReady) {
+      showOpenFace();
+    }
+    server->getAdvertising()->start();
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_ADVERTISING_STARTED, "BLE advertising restarted", "{\"device_name\":\"Snow\"}");
+  }
+};
+
+SnowBleServerCallbacks snowBleCallbacks;
+
+bool initBluetoothAdvertising() {
+  telemetryLog(TELEMETRY_INFO, BLUETOOTH_INIT_START, "BLE advertising init started", "{\"device_name\":\"Snow\",\"mode\":\"ble_peripheral\"}");
+
+  BLEDevice::init(SNOW_BLE_DEVICE_NAME);
+  BLEServer* server = BLEDevice::createServer();
+  if (server == nullptr) {
+    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE server creation failed", "{\"device_name\":\"Snow\"}");
+    return false;
+  }
+
+  server->setCallbacks(&snowBleCallbacks);
+  BLEService* service = server->createService(SNOW_BLE_SERVICE_UUID);
+  if (service == nullptr) {
+    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE service creation failed", "{\"device_name\":\"Snow\"}");
+    return false;
+  }
+
+  service->start();
+  BLEAdvertising* advertising = BLEDevice::getAdvertising();
+  advertising->addServiceUUID(SNOW_BLE_SERVICE_UUID);
+  advertising->setScanResponse(true);
+  advertising->setMinPreferred(0x06);
+  advertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+
+  telemetryLog(TELEMETRY_INFO, BLUETOOTH_ADVERTISING_STARTED, "BLE advertising started", "{\"device_name\":\"Snow\",\"service_uuid\":\"7d8c0f2a-6f8a-4d4c-9d4a-0a2c0f8b1540\"}");
+  return true;
+}
 
 void drawCentered(const char* text, int y, sFONT* font, UWORD fg, UWORD bg) {
   int len = 0;
@@ -259,19 +328,29 @@ void drawBaseCard() {
   drawCentered("HELLO SUN-A", 14, &Font24, EPD_1IN54G_BLACK, EPD_1IN54G_YELLOW);
   drawCentered(dateLine, 56, &Font20, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
 
+  // Status rows below the date share one font/size/margin so the list reads
+  // as one consistent block even as more rows are added.
   if (wifiOk) {
-    drawCentered("WIFI OK", 86, &Font20, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+    drawCentered("WIFI OK", 80, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
   } else {
-    drawCentered("WIFI FAIL", 86, &Font20, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+    drawCentered("WIFI FAIL", 80, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
   }
 
   if (batteryOk) {
-    drawCentered("BATTERY OK", 114, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+    drawCentered("BATTERY OK", 104, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
   } else {
-    drawCentered("BATTERY CHECK", 114, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+    drawCentered("BATTERY CHECK", 104, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
   }
 
-  drawCentered("SNOW READY", 148, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+  if (bleConnected) {
+    drawCentered("BLE CONNECTED", 128, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+  } else if (bleOk) {
+    drawCentered("BLE ADVERTISING", 128, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+  } else {
+    drawCentered("BLE FAIL", 128, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+  }
+
+  drawCentered("SNOW READY", 152, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
 }
 
 void drawEyesOpen() {
@@ -292,13 +371,14 @@ void setup() {
   delay(2000);  // Give Arduino IDE Serial Monitor time to attach after USB reset.
   telemetryLog(TELEMETRY_INFO, SYSTEM_START, "Snow status-card firmware started", "{\"baudrate\":115200}");
   char versionDetails[192];
-  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner\"}", SNOW_FIRMWARE_VERSION);
+  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising\"}", SNOW_FIRMWARE_VERSION);
   telemetryLog(TELEMETRY_INFO, FIRMWARE_VERSION, "Snow firmware version", versionDetails);
 
   Wire.begin(SNOW_I2C_SDA_PIN, SNOW_I2C_SCL_PIN);
   Wire.setClock(400000UL);
   scanI2CBus();
   logBatteryVoltage();
+  bleOk = initBluetoothAdvertising();
 
   telemetryLog(TELEMETRY_INFO, DISPLAY_INIT_START, "Display module init started");
   if (DEV_Module_Init() != 0) {
@@ -332,6 +412,7 @@ void setup() {
   // Draw once only. e-Paper refresh is slow, so avoid repeated updates.
   telemetryLog(TELEMETRY_INFO, DISPLAY_REFRESH_START, "Display refresh started", "{\"mode\":\"full_refresh\"}");
   showOpenFace();
+  displayReady = true;
 
   telemetryLog(TELEMETRY_INFO, DISPLAY_REFRESH_DONE, "Display refresh completed", "{\"mode\":\"full_refresh\"}");
 }

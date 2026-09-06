@@ -59,6 +59,10 @@ Snow firmware의 Serial Monitor 로그를 사람이 읽는 임시 문자열이 �
 | `battery_adc_init` | `info` | ADC 기반 배터리 전압 측정 초기화 시작 |
 | `battery_voltage_read` | `info` 또는 `warning` | ADC 기반 배터리 전압 읽기 완료. 유효 전압 범위면 `info`, 범위 밖이면 `warning` |
 | `battery_voltage_read_failed` | `warning` | ADC 배터리 전압 읽기 실패 |
+| `bluetooth_init_start` | `info` | BLE advertising 초기화 시작 |
+| `bluetooth_advertising_started` | `info` | BLE peripheral advertising 시작 또는 재시작 |
+| `bluetooth_client_connected` | `info` | BLE client 연결 확인 |
+| `bluetooth_client_disconnected` | `info` | BLE client 연결 해제 확인 |
 | `i2c_scan_start` | `info` | I2C address scan 시작 |
 | `i2c_scan_device_found` | `info` | I2C 응답 주소 발견 |
 | `i2c_scan_done` | `info` 또는 `warning` | I2C scan 완료. 발견 주소가 없으면 `warning` |
@@ -144,6 +148,37 @@ Waveshare 문서에는 충전 회로가 있다고 명시되어 있지만, 현재
 | 판정 | 전압은 만충에 가까운 범위에서 안정적. 현재 상태만으로 충전 진행 여부는 단정하지 않음 |
 
 현재 배터리 전압이 이미 만충에 가까우므로, 충전 기능 자체를 확인하려면 배터리 전압을 낮춘 뒤 USB 연결 후 `voltage_mv`가 회복되는지 다시 관찰합니다.
+
+---
+
+## Bluetooth 확인 기준
+
+ESP32-S3는 BLE peripheral advertising 기준으로 Snow 발견/연결을 확인합니다. 이번 항목은 폰에서 기기를 발견하고 연결/해제하는 것까지를 범위로 두며, 데이터 송수신은 다음 `BLE 통신` 항목에서 분리해 검증합니다.
+
+펌웨어 기준:
+
+| 항목 | 값 |
+| --- | --- |
+| firmware version | `0.0.4` |
+| feature marker | `ble_advertising` |
+| BLE device name | `Snow` |
+| BLE service UUID | `7d8c0f2a-6f8a-4d4c-9d4a-0a2c0f8b1540` |
+
+확인 이벤트:
+
+| 이벤트 | 판정 기준 |
+| --- | --- |
+| `bluetooth_advertising_started` | BLE advertising 시작 확인 |
+| `bluetooth_client_connected` | 폰 앱에서 Snow 연결 확인 |
+| `bluetooth_client_disconnected` | 폰 앱 연결 해제 확인. 이후 advertising 재시작 확인 |
+
+테스트 절차:
+
+1. Arduino IDE에서 `snow-status-card.ino`를 업로드합니다.
+2. Serial Monitor `115200`에서 `firmware_version`의 `version`이 `0.0.4`이고 `features`에 `ble_advertising`이 있는지 확인합니다.
+3. iPhone 또는 Android의 BLE scanner 앱에서 `Snow`를 검색합니다.
+4. `Snow`에 연결한 뒤 Serial Monitor에서 `bluetooth_client_connected`를 확인합니다.
+5. 연결을 해제한 뒤 `bluetooth_client_disconnected`와 `bluetooth_advertising_started` 재시작 로그를 확인합니다.
 
 ---
 

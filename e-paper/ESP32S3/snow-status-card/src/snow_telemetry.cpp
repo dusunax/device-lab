@@ -49,6 +49,14 @@ static const char* eventToString(TelemetryEvent event) {
       return "battery_voltage_read";
     case BATTERY_VOLTAGE_READ_FAILED:
       return "battery_voltage_read_failed";
+    case BLUETOOTH_INIT_START:
+      return "bluetooth_init_start";
+    case BLUETOOTH_ADVERTISING_STARTED:
+      return "bluetooth_advertising_started";
+    case BLUETOOTH_CLIENT_CONNECTED:
+      return "bluetooth_client_connected";
+    case BLUETOOTH_CLIENT_DISCONNECTED:
+      return "bluetooth_client_disconnected";
     case I2C_SCAN_START:
       return "i2c_scan_start";
     case I2C_SCAN_DEVICE_FOUND:
@@ -94,6 +102,15 @@ void telemetryLog(TelemetryLevel level, TelemetryEvent event, const char* messag
 }
 
 void telemetryLog(TelemetryLevel level, TelemetryEvent event, const char* message, const char* detailsJson) {
+  // ESP32-S3 native USB CDC (Serial) can block on print() when no host has
+  // the port open (e.g. booting on battery with no USB attached), or when a
+  // host stops draining the TX buffer mid-stream. Skipping the log entirely
+  // when no host is attached keeps firmware timing (BLE, display) unaffected
+  // by whether anyone happens to be watching Serial.
+  if (!Serial) {
+    return;
+  }
+
   Serial.print('{');
   Serial.print("\"level\":");
   printEscapedJsonString(levelToString(level));

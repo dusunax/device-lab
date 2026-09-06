@@ -50,6 +50,16 @@ vendor/waveshare_epaper_1in54g/
 
 기능 영역은 `e-paper`로 관리하고, 실제 기기 별칭 `Snow`는 코드 내부와 문서 본문에서 사용합니다.
 
+## Bluetooth 테스트 기준
+
+Snow는 BLE peripheral로 `Snow` 이름을 광고합니다. 폰에서 발견/연결되는지 확인하고, 연결/해제 결과는 Serial telemetry로 기록합니다.
+
+| 항목 | 값 |
+| --- | --- |
+| BLE device name | `Snow` |
+| 확인 이벤트 | `bluetooth_advertising_started`, `bluetooth_client_connected`, `bluetooth_client_disconnected` |
+| 범위 | 발견/연결 확인. 데이터 송수신은 다음 BLE 통신 항목에서 분리 검증 |
+
 ## 배터리 측정 기준
 
 Waveshare ESP32-S3-ePaper-1.54G 문서와 공식 예제 기준으로 배터리 전압은 ADC로 측정합니다.
