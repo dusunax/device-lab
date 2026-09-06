@@ -22,7 +22,7 @@
 #error "Snow needs Tools > USB CDC On Boot > Enabled to show Serial Monitor logs. Enable it, then compile/upload again."
 #endif
 
-#define SNOW_FIRMWARE_VERSION "0.0.2"
+#define SNOW_FIRMWARE_VERSION "0.0.3"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
 #define SNOW_BATTERY_ADC_UNIT ADC_UNIT_1
@@ -37,6 +37,8 @@ UBYTE *image = NULL;
 UWORD imageSize = 0;
 
 bool wifiOk = false;
+bool batteryOk = false;
+int lastBatteryVoltageMv = 0;
 char dateLine[16] = "NO DATE";
 
 void drawCentered(const char* text, int y, sFONT* font, UWORD fg, UWORD bg) {
@@ -177,6 +179,8 @@ void logBatteryVoltage() {
   int voltageMv = (int)(adcMv * SNOW_BATTERY_DIVIDER_RATIO);
   int estimatedPercent = estimateBatteryPercent(voltageMv);
   bool validVoltage = voltageMv >= SNOW_BATTERY_MIN_MV && voltageMv <= 4300;
+  lastBatteryVoltageMv = voltageMv;
+  batteryOk = validVoltage;
 
   char details[192];
   snprintf(details, sizeof(details),
@@ -261,7 +265,13 @@ void drawBaseCard() {
     drawCentered("WIFI FAIL", 86, &Font20, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
   }
 
-  drawCentered("SNOW READY", 146, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+  if (batteryOk) {
+    drawCentered("BATTERY OK", 114, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+  } else {
+    drawCentered("BATTERY CHECK", 114, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+  }
+
+  drawCentered("SNOW READY", 148, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
 }
 
 void drawEyesOpen() {
