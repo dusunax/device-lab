@@ -21,7 +21,7 @@
 | 🔋 배터리 연결 | USB 없이 배터리로 부팅 | 사진상 JST 커넥터 연결 확인. ADC 전압 약 4.12V 측정으로 배터리 연결 확인. e-paper 상태 카드에 `BATTERY OK` 표시 추가 | ✅ |
 | ⚡ 충전 | USB 연결 시 배터리 충전 확인 | 충전 회로 존재는 문서상 확인. USB 연결 상태에서 95초간 ADC 전압 4124mV로 안정적. 만충 또는 충전 종료 상태로 추정되며 충전 진행 여부는 낮은 전압 상태에서 재확인 필요 | ⬜ |
 | 🔋 배터리 측정 | 전압/배터리 상태 읽기 | Waveshare 공식 예제 기준 ADC1 Channel 3 전압 측정 구현. `battery_voltage_read`에서 약 4.12V 확인 | ✅ |
-| 🔵 Bluetooth | 폰에서 Snow 발견/연결 | - | ⬜ |
+| 🔵 Bluetooth | 폰에서 Snow 발견/연결 | BLE peripheral advertising 구현. BLE scanner 앱(nRF Connect)에서 `Snow` 발견·연결·서비스 UUID 일치 확인. 연결/해제 Serial telemetry와 e-paper 상태 표시(`BLE ADVERTISING`/`BLE CONNECTED`/`BLE FAIL`) 추가. 보안: 페어링/인증 없음 — 범위 내 누구나 연결 가능. 이번 항목은 발견/연결까지만이며, 다음 BLE 통신 항목에서 실제 데이터 characteristic 추가 전 반드시 적용 필요 | ✅ |
 | 📡 BLE 통신 | 폰 ↔ Snow 데이터 송수신 | - | ⬜ |
 | 🔊 Speaker | 비프음/멜로디 출력 | - | ⬜ |
 | 🎙️ Microphone | 마이크 입력 감지 | - | ⬜ |
