@@ -24,6 +24,7 @@
 HELLO SUN-A
 YYYY-MM-DD
 WIFI OK 또는 WIFI FAIL
+BATTERY OK 또는 BATTERY CHECK
 SNOW READY
 • — •
 ```
@@ -34,6 +35,7 @@ SNOW READY
 e-paper/ESP32S3/snow-status-card/
   snow-status-card.ino        # e-paper 상태 카드 스케치. 내부 기기 별칭은 Snow
   secrets.example.h           # Git에 포함하는 예시 설정 파일
+  src/snow_telemetry.*        # Serial JSON Lines telemetry
   src/waveshare_epaper_1in54g -> vendor/waveshare_epaper_1in54g
 
 vendor/waveshare_epaper_1in54g/
@@ -47,6 +49,19 @@ vendor/waveshare_epaper_1in54g/
 ```
 
 기능 영역은 `e-paper`로 관리하고, 실제 기기 별칭 `Snow`는 코드 내부와 문서 본문에서 사용합니다.
+
+## 배터리 측정 기준
+
+Waveshare ESP32-S3-ePaper-1.54G 문서와 공식 예제 기준으로 배터리 전압은 ADC로 측정합니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 측정 방식 | ADC battery measurement |
+| ADC unit | `ADC_UNIT_1` |
+| ADC channel | `ADC_CHANNEL_3` |
+| 계산식 | `battery_voltage_v = calibrated_adc_mv * 0.001 * 2` |
+
+I2C scan에서 확인되는 `0x18`, `0x51`, `0x70`은 각각 audio codec, RTC, 온습도 센서로 봅니다. `0x55` BQ27220 fuel gauge는 현재 문서 기준 배터리 측정 경로로 사용하지 않습니다.
 
 ## 보안 제약
 
@@ -90,4 +105,5 @@ Serial Monitor baud: 115200
 - `docs/e-paper/setup.md`
 - `docs/e-paper/troubleshooting.md`
 - `docs/e-paper/feature-checklist.md`
+- `docs/e-paper/telemetry.md`
 - `docs/shared/waveshare-epaper-driver.md`
