@@ -10,12 +10,10 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLESecurity.h>
-#include <esp_adc/adc_oneshot.h>
-#include <esp_adc/adc_cali.h>
-#include <esp_adc/adc_cali_scheme.h>
 #include "secrets.h"
 #include "src/snow_telemetry.h"
 #include "src/snow_display.h"
+#include "src/snow_battery.h"
 #include "src/waveshare_epaper_1in54g/EPD_1in54g.h"
 #include "src/waveshare_epaper_1in54g/GUI_Paint.h"
 #include "src/waveshare_epaper_1in54g/fonts.h"
@@ -31,12 +29,9 @@
 #define SNOW_FIRMWARE_VERSION "0.0.5"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
-#define SNOW_BATTERY_ADC_UNIT ADC_UNIT_1
-#define SNOW_BATTERY_ADC_CHANNEL ADC_CHANNEL_3
-#define SNOW_BATTERY_ADC_ATTEN ADC_ATTEN_DB_12
-#define SNOW_BATTERY_ADC_BITWIDTH ADC_BITWIDTH_12
 #define SNOW_BATTERY_DIVIDER_RATIO 2.0f
 #define SNOW_BATTERY_MIN_MV 3000
+#define SNOW_BATTERY_MAX_MV 4300
 #define SNOW_BATTERY_FULL_MV 4120
 #define SNOW_BLE_DEVICE_NAME "Snow"
 #define SNOW_BLE_SERVICE_UUID "7d8c0f2a-6f8a-4d4c-9d4a-0a2c0f8b1540"
@@ -210,103 +205,20 @@ bool initBluetoothAdvertising() {
   return true;
 }
 
-static adc_oneshot_unit_handle_t batteryAdcHandle = NULL;
-static adc_cali_handle_t batteryAdcCaliHandle = NULL;
-static bool batteryAdcInitialized = false;
-static bool batteryAdcCalibrated = false;
-
-bool initBatteryAdc() {
-  if (batteryAdcInitialized) {
-    return true;
-  }
-
-  telemetryLog(TELEMETRY_INFO, BATTERY_ADC_INIT, "Battery ADC init started", "{\"adc_unit\":1,\"adc_channel\":3,\"attenuation\":\"ADC_ATTEN_DB_12\",\"bitwidth\":12}");
-
-  adc_oneshot_unit_init_cfg_t unitConfig = {};
-  unitConfig.unit_id = SNOW_BATTERY_ADC_UNIT;
-  esp_err_t err = adc_oneshot_new_unit(&unitConfig, &batteryAdcHandle);
-  if (err != ESP_OK) {
-    char details[64];
-    snprintf(details, sizeof(details), "{\"step\":\"new_unit\",\"esp_err\":%d}", (int)err);
-    telemetryLog(TELEMETRY_WARNING, BATTERY_VOLTAGE_READ_FAILED, "Battery ADC init failed", details);
-    return false;
-  }
-
-  adc_oneshot_chan_cfg_t channelConfig = {};
-  channelConfig.atten = SNOW_BATTERY_ADC_ATTEN;
-  channelConfig.bitwidth = SNOW_BATTERY_ADC_BITWIDTH;
-  err = adc_oneshot_config_channel(batteryAdcHandle, SNOW_BATTERY_ADC_CHANNEL, &channelConfig);
-  if (err != ESP_OK) {
-    char details[64];
-    snprintf(details, sizeof(details), "{\"step\":\"config_channel\",\"esp_err\":%d}", (int)err);
-    telemetryLog(TELEMETRY_WARNING, BATTERY_VOLTAGE_READ_FAILED, "Battery ADC init failed", details);
-    return false;
-  }
-
-  adc_cali_curve_fitting_config_t caliConfig = {};
-  caliConfig.unit_id = SNOW_BATTERY_ADC_UNIT;
-  caliConfig.atten = SNOW_BATTERY_ADC_ATTEN;
-  caliConfig.bitwidth = SNOW_BATTERY_ADC_BITWIDTH;
-  err = adc_cali_create_scheme_curve_fitting(&caliConfig, &batteryAdcCaliHandle);
-  batteryAdcCalibrated = (err == ESP_OK);
-
-  batteryAdcInitialized = true;
-  char details[80];
-  snprintf(details, sizeof(details), "{\"adc_unit\":1,\"adc_channel\":3,\"calibrated\":%s}", batteryAdcCalibrated ? "true" : "false");
-  telemetryLog(TELEMETRY_INFO, BATTERY_ADC_INIT, "Battery ADC init completed", details);
-  return true;
-}
-
 void logBatteryVoltage() {
-  if (!initBatteryAdc()) {
+  BatteryReading reading = readBatteryVoltage(SNOW_BATTERY_DIVIDER_RATIO, SNOW_BATTERY_MIN_MV, SNOW_BATTERY_MAX_MV, SNOW_BATTERY_FULL_MV);
+  if (!reading.readOk) {
     return;
   }
 
-  int adcRaw = 0;
-  esp_err_t err = adc_oneshot_read(batteryAdcHandle, SNOW_BATTERY_ADC_CHANNEL, &adcRaw);
-  if (err != ESP_OK) {
-    char details[64];
-    snprintf(details, sizeof(details), "{\"step\":\"read\",\"esp_err\":%d}", (int)err);
-    telemetryLog(TELEMETRY_WARNING, BATTERY_VOLTAGE_READ_FAILED, "Battery ADC read failed", details);
-    return;
-  }
-
-  int adcMv = 0;
-  if (batteryAdcCalibrated) {
-    err = adc_cali_raw_to_voltage(batteryAdcCaliHandle, adcRaw, &adcMv);
-    if (err != ESP_OK) {
-      char details[80];
-      snprintf(details, sizeof(details), "{\"step\":\"calibrate\",\"adc_raw\":%d,\"esp_err\":%d}", adcRaw, (int)err);
-      telemetryLog(TELEMETRY_WARNING, BATTERY_VOLTAGE_READ_FAILED, "Battery ADC calibration failed", details);
-      return;
-    }
-  } else {
-    adcMv = (int)(((long)adcRaw * 3300L) / 4096L);
-  }
-
-  int voltageMv = (int)(adcMv * SNOW_BATTERY_DIVIDER_RATIO);
-  int estimatedPercent = estimateBatteryPercent(voltageMv, SNOW_BATTERY_MIN_MV, SNOW_BATTERY_FULL_MV);
-  bool validVoltage = voltageMv >= SNOW_BATTERY_MIN_MV && voltageMv <= 4300;
-  lastBatteryVoltageMv = voltageMv;
-  batteryOk = validVoltage;
+  lastBatteryVoltageMv = reading.voltageMv;
+  batteryOk = reading.inRange;
 
   if (statusCharacteristic != nullptr) {
     char statusValue[32];
-    snprintf(statusValue, sizeof(statusValue), "battery %dmV %d%%", voltageMv, estimatedPercent);
+    snprintf(statusValue, sizeof(statusValue), "battery %dmV %d%%", reading.voltageMv, reading.percent);
     statusCharacteristic->setValue(statusValue);
   }
-
-  char details[192];
-  snprintf(details, sizeof(details),
-          "{\"adc_unit\":1,\"adc_channel\":3,\"adc_raw\":%d,\"adc_mv\":%d,\"voltage_mv\":%d,\"voltage_v\":%.2f,\"estimated_percent\":%d,\"calibrated\":%s}",
-           adcRaw,
-           adcMv,
-           voltageMv,
-           voltageMv / 1000.0f,
-           estimatedPercent,
-           batteryAdcCalibrated ? "true" : "false");
-
-  telemetryLog(validVoltage ? TELEMETRY_INFO : TELEMETRY_WARNING, BATTERY_VOLTAGE_READ, "Battery voltage read", details);
 }
 
 bool updateTodayDate() {
@@ -331,9 +243,9 @@ bool updateTodayDate() {
   }
 
   snprintf(dateLine, sizeof(dateLine), "%04d-%02d-%02d",
-           timeinfo.tm_year + 1900,
-           timeinfo.tm_mon + 1,
-           timeinfo.tm_mday);
+      timeinfo.tm_year + 1900,
+      timeinfo.tm_mon + 1,
+      timeinfo.tm_mday);
 
   char details[80];
   snprintf(details, sizeof(details), "{\"date\":\"%s\",\"retry_count\":%d}", dateLine, retry);

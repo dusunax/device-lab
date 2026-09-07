@@ -62,16 +62,6 @@ void scanI2CBus() {
   telemetryLog(foundCount > 0 ? TELEMETRY_INFO : TELEMETRY_WARNING, I2C_SCAN_DONE, "I2C scan completed", details);
 }
 
-int estimateBatteryPercent(int voltageMv, int minMv, int fullMv) {
-  if (voltageMv <= minMv) {
-    return 0;
-  }
-  if (voltageMv >= fullMv) {
-    return 100;
-  }
-  return (int)(((long)(voltageMv - minMv) * 100L) / (fullMv - minMv));
-}
-
 bool connectWiFi(const char* ssid, const char* password) {
   telemetryLog(TELEMETRY_INFO, WIFI_CONNECTING, "Wi-Fi connection started", "{\"retry_limit\":24,\"retry_delay_ms\":500}");
 
