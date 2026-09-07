@@ -29,6 +29,8 @@
 #define SNOW_BATTERY_MAX_MV 4300
 #define SNOW_BATTERY_FULL_MV 4120
 #define SNOW_BLE_DEVICE_NAME "Snow"
+#define SNOW_BLE_DEVICE_NAME_JSON "{\"device_name\":\"" SNOW_BLE_DEVICE_NAME "\"}"
+#define SNOW_DATE_UNKNOWN "NO DATE"
 #define SNOW_BLE_SERVICE_UUID "7d8c0f2a-6f8a-4d4c-9d4a-0a2c0f8b1540"
 // Snow -> phone: read-only status string (battery voltage/percent), requires pairing.
 #define SNOW_BLE_STATUS_CHAR_UUID "cdd36062-d8f1-43ba-9858-bd405c6152f8"
@@ -44,7 +46,7 @@ bool batteryOk = false;
 bool bleOk = false;
 bool bleConnected = false;
 int lastBatteryVoltageMv = 0;
-char dateLine[16] = "NO DATE";
+char dateLine[16] = SNOW_DATE_UNKNOWN;
 // Non-empty while a passkey is displayed for pairing; shown instead of "SNOW READY".
 char pairingPasskeyLine[8] = "";
 
@@ -60,7 +62,7 @@ void showOpenFace();  // Defined below; needed here because callbacks trigger a 
 
 class SnowBleServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* server) override {
-    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_CONNECTED, "BLE client connected", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_CONNECTED, "BLE client connected", SNOW_BLE_DEVICE_NAME_JSON);
     bleConnected = true;
     if (displayReady) {
       redrawRequested = true;
@@ -68,13 +70,13 @@ class SnowBleServerCallbacks : public BLEServerCallbacks {
   }
 
   void onDisconnect(BLEServer* server) override {
-    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_DISCONNECTED, "BLE client disconnected", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_DISCONNECTED, "BLE client disconnected", SNOW_BLE_DEVICE_NAME_JSON);
     bleConnected = false;
     if (displayReady) {
       redrawRequested = true;
     }
     server->getAdvertising()->start();
-    telemetryLog(TELEMETRY_INFO, BLUETOOTH_ADVERTISING_STARTED, "BLE advertising restarted", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_ADVERTISING_STARTED, "BLE advertising restarted", SNOW_BLE_DEVICE_NAME_JSON);
   }
 };
 
@@ -163,14 +165,14 @@ bool initBluetoothAdvertising() {
 
   BLEServer* server = BLEDevice::createServer();
   if (server == nullptr) {
-    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE server creation failed", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE server creation failed", SNOW_BLE_DEVICE_NAME_JSON);
     return false;
   }
 
   server->setCallbacks(&snowBleCallbacks);
   BLEService* service = server->createService(SNOW_BLE_SERVICE_UUID);
   if (service == nullptr) {
-    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE service creation failed", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE service creation failed", SNOW_BLE_DEVICE_NAME_JSON);
     return false;
   }
 
@@ -230,7 +232,7 @@ bool updateTodayDate() {
   }
 
   if (retry >= 20) {
-    snprintf(dateLine, sizeof(dateLine), "NO DATE");
+    snprintf(dateLine, sizeof(dateLine), SNOW_DATE_UNKNOWN);
     char details[48];
     snprintf(details, sizeof(details), "{\"retry_count\":%d}", retry);
     telemetryLog(TELEMETRY_WARNING, TIME_SYNC_FAILED, "NTP time sync failed", details);
