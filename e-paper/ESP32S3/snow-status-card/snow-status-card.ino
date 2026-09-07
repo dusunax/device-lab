@@ -55,20 +55,15 @@ bool bleOk = false;
 bool bleConnected = false;
 int lastBatteryVoltageMv = 0;
 char dateLine[16] = "NO DATE";
-// Non-empty while a passkey is being displayed for pairing; shown in place of
-// "SNOW READY" on the status card. Cleared once authentication completes.
+// Non-empty while a passkey is displayed for pairing; shown instead of "SNOW READY".
 char pairingPasskeyLine[8] = "";
 
 BLECharacteristic *statusCharacteristic = nullptr;
 
-// BLE advertising starts early in setup(), well before the e-paper module,
-// image buffer, and Paint state are initialized. A client can connect during
-// that window, so BLE callbacks must not attempt a redraw until the first
-// showOpenFace() call in setup() has actually completed.
+// Guards BLE callbacks against redrawing before setup()'s first draw completes.
 bool displayReady = false;
 
-// BLE callbacks only request a redraw; only loop() performs it. See
-// docs/e-paper/troubleshooting.md for why.
+// BLE callbacks only request a redraw; only loop() performs it. See troubleshooting.md #9.
 volatile bool redrawRequested = false;
 
 void showOpenFace();  // Defined below; needed here because callbacks trigger a redraw.
@@ -77,10 +72,6 @@ class SnowBleServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* server) override {
     telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_CONNECTED, "BLE client connected", "{\"device_name\":\"Snow\"}");
     bleConnected = true;
-    // Connect/disconnect is a rare, meaningful state change, so refreshing
-    // the display for it is an intentional exception to "draw once only" —
-    // but the actual (slow) redraw happens in loop(), never here. See the
-    // redrawRequested comment for why.
     if (displayReady) {
       redrawRequested = true;
     }
@@ -99,9 +90,7 @@ class SnowBleServerCallbacks : public BLEServerCallbacks {
 
 SnowBleServerCallbacks snowBleCallbacks;
 
-// Handles the write-only command characteristic. The content is only logged,
-// never executed/parsed as a command, so an unexpected or malformed payload
-// cannot do anything beyond appear in the log.
+// Received value is only logged, never executed as a command.
 class SnowCommandCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* characteristic) override {
     String value = characteristic->getValue();
@@ -118,9 +107,7 @@ class SnowCommandCallbacks : public BLECharacteristicCallbacks {
 
 SnowCommandCallbacks snowCommandCallbacks;
 
-// IO capability is display-only (Snow can show a passkey, has no input), so
-// pairing uses a fresh random passkey per connection rather than a fixed one
-// baked into the firmware — anyone reading this source can't pre-know it.
+// Fresh random passkey per connection, not a fixed one baked into the source.
 class SnowSecurityCallbacks : public BLESecurityCallbacks {
   uint32_t onPassKeyRequest() override {
     return 0;  // Unused: Snow only displays a passkey, it never types one in.
@@ -178,9 +165,6 @@ bool initBluetoothAdvertising() {
 
   BLEDevice::init(SNOW_BLE_DEVICE_NAME);
 
-  // Display-only IO + bonding + MITM + secure connections: pairing requires
-  // the phone user to type the passkey Snow shows, so only someone who can
-  // see the device's screen (or Serial log) can complete pairing.
   BLESecurity* security = new BLESecurity();
   security->setCapability(ESP_IO_CAP_OUT);
   security->setPassKey(false, 0);  // false = fresh random passkey per connection
