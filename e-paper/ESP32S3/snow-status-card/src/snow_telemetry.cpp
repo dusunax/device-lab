@@ -57,6 +57,12 @@ static const char* eventToString(TelemetryEvent event) {
       return "bluetooth_client_connected";
     case BLUETOOTH_CLIENT_DISCONNECTED:
       return "bluetooth_client_disconnected";
+    case BLUETOOTH_PASSKEY_DISPLAY:
+      return "bluetooth_passkey_display";
+    case BLUETOOTH_AUTH_COMPLETE:
+      return "bluetooth_auth_complete";
+    case BLUETOOTH_DATA_RECEIVED:
+      return "bluetooth_data_received";
     case I2C_SCAN_START:
       return "i2c_scan_start";
     case I2C_SCAN_DEVICE_FOUND:
