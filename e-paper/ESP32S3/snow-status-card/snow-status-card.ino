@@ -1,8 +1,3 @@
-// Snow status-card firmware
-// Expected Arduino IDE sketch path: e-paper/ESP32S3/snow-status-card/snow-status-card.ino
-// Includes Serial JSON telemetry, ADC battery voltage checks, I2C scanner diagnostics, and
-// secured BLE advertising with data characteristics.
-
 #include <WiFi.h>
 #include <Wire.h>
 #include <time.h>
@@ -133,8 +128,8 @@ class SnowSecurityCallbacks : public BLESecurityCallbacks {
     bool authOk = desc->sec_state.encrypted && desc->sec_state.authenticated;
     char details[64];
     snprintf(details, sizeof(details), "{\"encrypted\":%s,\"authenticated\":%s}",
-             desc->sec_state.encrypted ? "true" : "false",
-             desc->sec_state.authenticated ? "true" : "false");
+      desc->sec_state.encrypted ? "true" : "false",
+      desc->sec_state.authenticated ? "true" : "false");
     telemetryLog(authOk ? TELEMETRY_INFO : TELEMETRY_WARNING, BLUETOOTH_AUTH_COMPLETE, "BLE authentication completed", details);
 
     pairingPasskeyLine[0] = '\0';
@@ -145,7 +140,7 @@ class SnowSecurityCallbacks : public BLESecurityCallbacks {
 #else
   void onAuthenticationComplete(esp_ble_auth_cmpl_t desc) override {
     telemetryLog(desc.success ? TELEMETRY_INFO : TELEMETRY_WARNING, BLUETOOTH_AUTH_COMPLETE, "BLE authentication completed",
-                 desc.success ? "{\"success\":true}" : "{\"success\":false}");
+      desc.success ? "{\"success\":true}" : "{\"success\":false}");
 
     pairingPasskeyLine[0] = '\0';
     if (displayReady) {
