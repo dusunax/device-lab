@@ -58,7 +58,18 @@ Snow는 BLE peripheral로 `Snow` 이름을 광고합니다. 폰에서 발견/연
 | --- | --- |
 | BLE device name | `Snow` |
 | 확인 이벤트 | `bluetooth_advertising_started`, `bluetooth_client_connected`, `bluetooth_client_disconnected` |
-| 범위 | 발견/연결 확인. 데이터 송수신은 다음 BLE 통신 항목에서 분리 검증 |
+| 범위 | 발견/연결 확인. 데이터 송수신과 보안은 BLE 통신 항목에서 검증 |
+
+## BLE 통신 기준
+
+status(읽기)/command(쓰기) characteristic으로 폰 ↔ Snow 데이터를 주고받습니다. 두 characteristic
+모두 패스키 페어링(display-only IO, bonding+MITM+secure connections)이 필요합니다.
+
+| 항목 | 값 |
+| --- | --- |
+| status characteristic | `cdd36062-d8f1-43ba-9858-bd405c6152f8`, 읽기 전용, `battery {mV}mV {percent}%` |
+| command characteristic | `008b1a7b-7e83-4333-b5f5-b8913e93b937`, 쓰기 전용, 값은 로그만 남기고 실행하지 않음 |
+| 확인 이벤트 | `bluetooth_passkey_display`, `bluetooth_auth_complete`, `bluetooth_data_received` |
 
 ## 배터리 측정 기준
 

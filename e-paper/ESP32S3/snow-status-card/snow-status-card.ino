@@ -1,6 +1,7 @@
 // Snow status-card firmware
 // Expected Arduino IDE sketch path: e-paper/ESP32S3/snow-status-card/snow-status-card.ino
-// Includes Serial JSON telemetry, ADC battery voltage checks, I2C scanner diagnostics, and BLE advertising.
+// Includes Serial JSON telemetry, ADC battery voltage checks, I2C scanner diagnostics, and
+// secured BLE advertising with data characteristics.
 
 #include <WiFi.h>
 #include <Wire.h>
@@ -8,6 +9,7 @@
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
+#include <BLESecurity.h>
 #include <esp_adc/adc_oneshot.h>
 #include <esp_adc/adc_cali.h>
 #include <esp_adc/adc_cali_scheme.h>
@@ -25,7 +27,7 @@
 #error "Snow needs Tools > USB CDC On Boot > Enabled to show Serial Monitor logs. Enable it, then compile/upload again."
 #endif
 
-#define SNOW_FIRMWARE_VERSION "0.0.4"
+#define SNOW_FIRMWARE_VERSION "0.0.5"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
 #define SNOW_BATTERY_ADC_UNIT ADC_UNIT_1
@@ -37,6 +39,11 @@
 #define SNOW_BATTERY_FULL_MV 4120
 #define SNOW_BLE_DEVICE_NAME "Snow"
 #define SNOW_BLE_SERVICE_UUID "7d8c0f2a-6f8a-4d4c-9d4a-0a2c0f8b1540"
+// Snow -> phone: read-only status string (battery voltage/percent), requires pairing.
+#define SNOW_BLE_STATUS_CHAR_UUID "cdd36062-d8f1-43ba-9858-bd405c6152f8"
+// phone -> Snow: write-only command string, requires pairing. Content is logged, not executed.
+#define SNOW_BLE_COMMAND_CHAR_UUID "008b1a7b-7e83-4333-b5f5-b8913e93b937"
+#define SNOW_BLE_COMMAND_MAX_LEN 64
 
 UBYTE *image = NULL;
 UWORD imageSize = 0;
@@ -47,6 +54,11 @@ bool bleOk = false;
 bool bleConnected = false;
 int lastBatteryVoltageMv = 0;
 char dateLine[16] = "NO DATE";
+// Non-empty while a passkey is being displayed for pairing; shown in place of
+// "SNOW READY" on the status card. Cleared once authentication completes.
+char pairingPasskeyLine[8] = "";
+
+BLECharacteristic *statusCharacteristic = nullptr;
 
 // BLE advertising starts early in setup(), well before the e-paper module,
 // image buffer, and Paint state are initialized. A client can connect during
@@ -54,17 +66,22 @@ char dateLine[16] = "NO DATE";
 // showOpenFace() call in setup() has actually completed.
 bool displayReady = false;
 
+// BLE callbacks only request a redraw; only loop() performs it. See
+// docs/e-paper/troubleshooting.md for why.
+volatile bool redrawRequested = false;
+
 void showOpenFace();  // Defined below; needed here because callbacks trigger a redraw.
 
 class SnowBleServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* server) override {
     telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_CONNECTED, "BLE client connected", "{\"device_name\":\"Snow\"}");
     bleConnected = true;
-    // Connect/disconnect is a rare, meaningful state change, so a full
-    // e-paper refresh here is an intentional exception to "draw once only" —
-    // but only once the display is actually ready to be drawn to.
+    // Connect/disconnect is a rare, meaningful state change, so refreshing
+    // the display for it is an intentional exception to "draw once only" —
+    // but the actual (slow) redraw happens in loop(), never here. See the
+    // redrawRequested comment for why.
     if (displayReady) {
-      showOpenFace();
+      redrawRequested = true;
     }
   }
 
@@ -72,7 +89,7 @@ class SnowBleServerCallbacks : public BLEServerCallbacks {
     telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_DISCONNECTED, "BLE client disconnected", "{\"device_name\":\"Snow\"}");
     bleConnected = false;
     if (displayReady) {
-      showOpenFace();
+      redrawRequested = true;
     }
     server->getAdvertising()->start();
     telemetryLog(TELEMETRY_INFO, BLUETOOTH_ADVERTISING_STARTED, "BLE advertising restarted", "{\"device_name\":\"Snow\"}");
@@ -81,10 +98,94 @@ class SnowBleServerCallbacks : public BLEServerCallbacks {
 
 SnowBleServerCallbacks snowBleCallbacks;
 
+// Handles the write-only command characteristic. The content is only logged,
+// never executed/parsed as a command, so an unexpected or malformed payload
+// cannot do anything beyond appear in the log.
+class SnowCommandCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic* characteristic) override {
+    String value = characteristic->getValue();
+    char safeValue[SNOW_BLE_COMMAND_MAX_LEN + 1];
+    size_t copyLen = (size_t)value.length() < SNOW_BLE_COMMAND_MAX_LEN ? (size_t)value.length() : SNOW_BLE_COMMAND_MAX_LEN;
+    memcpy(safeValue, value.c_str(), copyLen);
+    safeValue[copyLen] = '\0';
+
+    char details[SNOW_BLE_COMMAND_MAX_LEN + 32];
+    snprintf(details, sizeof(details), "{\"length\":%u,\"value\":\"%s\"}", (unsigned)value.length(), safeValue);
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_DATA_RECEIVED, "BLE command characteristic written", details);
+  }
+};
+
+SnowCommandCallbacks snowCommandCallbacks;
+
+// IO capability is display-only (Snow can show a passkey, has no input), so
+// pairing uses a fresh random passkey per connection rather than a fixed one
+// baked into the firmware — anyone reading this source can't pre-know it.
+class SnowSecurityCallbacks : public BLESecurityCallbacks {
+  uint32_t onPassKeyRequest() override {
+    return 0;  // Unused: Snow only displays a passkey, it never types one in.
+  }
+
+  void onPassKeyNotify(uint32_t passkey) override {
+    char details[48];
+    snprintf(details, sizeof(details), "{\"passkey\":\"%06lu\"}", (unsigned long)passkey);
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_PASSKEY_DISPLAY, "BLE pairing passkey generated", details);
+
+    snprintf(pairingPasskeyLine, sizeof(pairingPasskeyLine), "%06lu", (unsigned long)passkey);
+    // Screen update is best-effort; Serial (above) is the reliable source.
+    if (displayReady) {
+      redrawRequested = true;
+    }
+  }
+
+  bool onConfirmPIN(uint32_t pin) override {
+    return true;
+  }
+
+  bool onSecurityRequest() override {
+    return true;
+  }
+
+#if defined(CONFIG_NIMBLE_ENABLED)
+  void onAuthenticationComplete(ble_gap_conn_desc* desc) override {
+    bool authOk = desc->sec_state.encrypted && desc->sec_state.authenticated;
+    char details[64];
+    snprintf(details, sizeof(details), "{\"encrypted\":%s,\"authenticated\":%s}",
+             desc->sec_state.encrypted ? "true" : "false",
+             desc->sec_state.authenticated ? "true" : "false");
+    telemetryLog(authOk ? TELEMETRY_INFO : TELEMETRY_WARNING, BLUETOOTH_AUTH_COMPLETE, "BLE authentication completed", details);
+
+    pairingPasskeyLine[0] = '\0';
+    if (displayReady) {
+      redrawRequested = true;
+    }
+  }
+#else
+  void onAuthenticationComplete(esp_ble_auth_cmpl_t desc) override {
+    telemetryLog(desc.success ? TELEMETRY_INFO : TELEMETRY_WARNING, BLUETOOTH_AUTH_COMPLETE, "BLE authentication completed",
+                 desc.success ? "{\"success\":true}" : "{\"success\":false}");
+
+    pairingPasskeyLine[0] = '\0';
+    if (displayReady) {
+      redrawRequested = true;
+    }
+  }
+#endif
+};
+
 bool initBluetoothAdvertising() {
   telemetryLog(TELEMETRY_INFO, BLUETOOTH_INIT_START, "BLE advertising init started", "{\"device_name\":\"Snow\",\"mode\":\"ble_peripheral\"}");
 
   BLEDevice::init(SNOW_BLE_DEVICE_NAME);
+
+  // Display-only IO + bonding + MITM + secure connections: pairing requires
+  // the phone user to type the passkey Snow shows, so only someone who can
+  // see the device's screen (or Serial log) can complete pairing.
+  BLESecurity* security = new BLESecurity();
+  security->setCapability(ESP_IO_CAP_OUT);
+  security->setPassKey(false, 0);  // false = fresh random passkey per connection
+  security->setAuthenticationMode(true, true, true);  // bonding, MITM, secure connections
+  BLEDevice::setSecurityCallbacks(new SnowSecurityCallbacks());
+
   BLEServer* server = BLEDevice::createServer();
   if (server == nullptr) {
     telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE server creation failed", "{\"device_name\":\"Snow\"}");
@@ -97,6 +198,20 @@ bool initBluetoothAdvertising() {
     telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE service creation failed", "{\"device_name\":\"Snow\"}");
     return false;
   }
+
+  // _AUTHEN properties are what actually gate access on NimBLE (ESP32-S3);
+  // plain READ/WRITE would be reachable without pairing at all.
+  statusCharacteristic = service->createCharacteristic(
+    SNOW_BLE_STATUS_CHAR_UUID,
+    BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_READ_AUTHEN
+  );
+  statusCharacteristic->setValue("battery unknown");
+
+  BLECharacteristic* commandCharacteristic = service->createCharacteristic(
+    SNOW_BLE_COMMAND_CHAR_UUID,
+    BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_AUTHEN
+  );
+  commandCharacteristic->setCallbacks(&snowCommandCallbacks);
 
   service->start();
   BLEAdvertising* advertising = BLEDevice::getAdvertising();
@@ -251,6 +366,12 @@ void logBatteryVoltage() {
   lastBatteryVoltageMv = voltageMv;
   batteryOk = validVoltage;
 
+  if (statusCharacteristic != nullptr) {
+    char statusValue[32];
+    snprintf(statusValue, sizeof(statusValue), "battery %dmV %d%%", voltageMv, estimatedPercent);
+    statusCharacteristic->setValue(statusValue);
+  }
+
   char details[192];
   snprintf(details, sizeof(details),
            "{\"adc_unit\":1,\"adc_channel\":3,\"adc_raw\":%d,\"adc_mv\":%d,\"voltage_mv\":%d,\"voltage_v\":%.2f,\"estimated_percent\":%d,\"calibrated\":%s}",
@@ -350,7 +471,15 @@ void drawBaseCard() {
     drawCentered("BLE FAIL", 128, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
   }
 
-  drawCentered("SNOW READY", 152, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+  // Pairing passkey takes over this line temporarily; "SNOW READY" resumes
+  // once authentication completes (see SnowSecurityCallbacks).
+  if (pairingPasskeyLine[0] != '\0') {
+    char pinLine[16];
+    snprintf(pinLine, sizeof(pinLine), "PIN %s", pairingPasskeyLine);
+    drawCentered(pinLine, 152, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+  } else {
+    drawCentered("SNOW READY", 152, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+  }
 }
 
 void drawEyesOpen() {
@@ -371,7 +500,7 @@ void setup() {
   delay(2000);  // Give Arduino IDE Serial Monitor time to attach after USB reset.
   telemetryLog(TELEMETRY_INFO, SYSTEM_START, "Snow status-card firmware started", "{\"baudrate\":115200}");
   char versionDetails[192];
-  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising\"}", SNOW_FIRMWARE_VERSION);
+  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security\"}", SNOW_FIRMWARE_VERSION);
   telemetryLog(TELEMETRY_INFO, FIRMWARE_VERSION, "Snow firmware version", versionDetails);
 
   Wire.begin(SNOW_I2C_SDA_PIN, SNOW_I2C_SCL_PIN);
@@ -435,6 +564,11 @@ void loop() {
   if (lastI2CScanMs == 0 || now - lastI2CScanMs >= 60000UL) {
     lastI2CScanMs = now;
     scanI2CBus();
+  }
+
+  if (redrawRequested) {
+    redrawRequested = false;
+    showOpenFace();
   }
 
   delay(5000);

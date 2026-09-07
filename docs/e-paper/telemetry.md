@@ -63,6 +63,9 @@ Snow firmware의 Serial Monitor 로그를 사람이 읽는 임시 문자열이 �
 | `bluetooth_advertising_started` | `info` | BLE peripheral advertising 시작 또는 재시작 |
 | `bluetooth_client_connected` | `info` | BLE client 연결 확인 |
 | `bluetooth_client_disconnected` | `info` | BLE client 연결 해제 확인 |
+| `bluetooth_passkey_display` | `info` | 페어링 패스키 생성, Serial과 e-paper(best-effort)에 표시 |
+| `bluetooth_auth_complete` | `info` 또는 `warning` | 페어링 완료. `encrypted`/`authenticated` 모두 true면 `info` |
+| `bluetooth_data_received` | `info` | command characteristic에 쓰기 수신. 값은 로그만, 실행하지 않음 |
 | `i2c_scan_start` | `info` | I2C address scan 시작 |
 | `i2c_scan_device_found` | `info` | I2C 응답 주소 발견 |
 | `i2c_scan_done` | `info` 또는 `warning` | I2C scan 완료. 발견 주소가 없으면 `warning` |
@@ -179,6 +182,41 @@ ESP32-S3는 BLE peripheral advertising 기준으로 Snow 발견/연결을 확인
 3. iPhone 또는 Android의 BLE scanner 앱에서 `Snow`를 검색합니다.
 4. `Snow`에 연결한 뒤 Serial Monitor에서 `bluetooth_client_connected`를 확인합니다.
 5. 연결을 해제한 뒤 `bluetooth_client_disconnected`와 `bluetooth_advertising_started` 재시작 로그를 확인합니다.
+
+---
+
+## BLE 통신 확인 기준
+
+status(읽기)/command(쓰기) characteristic으로 폰 ↔ Snow 데이터 송수신을 확인합니다. 둘 다
+패스키 페어링이 필요합니다(display-only IO, bonding+MITM+secure connections).
+
+펌웨어 기준:
+
+| 항목 | 값 |
+| --- | --- |
+| firmware version | `0.0.5` |
+| feature marker | `ble_data,ble_security` |
+| status characteristic UUID | `cdd36062-d8f1-43ba-9858-bd405c6152f8` |
+| command characteristic UUID | `008b1a7b-7e83-4333-b5f5-b8913e93b937` |
+
+확인 이벤트:
+
+| 이벤트 | 판정 기준 |
+| --- | --- |
+| `bluetooth_passkey_display` | 패스키 생성 확인. `passkey` 값을 폰에 입력 |
+| `bluetooth_auth_complete` | `encrypted`/`authenticated`가 모두 `true`면 페어링 성공 |
+| `bluetooth_data_received` | command characteristic 쓰기 값이 그대로 로그에 기록됐는지 확인 |
+
+테스트 절차:
+
+1. BLE scanner 앱에서 Snow에 연결한 뒤 status 또는 command characteristic을 시도합니다(READ 또는
+   WRITE — 둘 다 인증 필요, 어느 쪽이든 페어링이 트리거됩니다).
+2. 폰에 페어링 요청이 뜨면, Serial Monitor의 `bluetooth_passkey_display`에서 `passkey` 값을 확인해
+   폰에 입력합니다. e-paper 화면에도 같은 값이 뜨지만 갱신이 느려(15~20초) Serial 쪽이 더 빠릅니다.
+3. `bluetooth_auth_complete`에서 `encrypted`/`authenticated`가 모두 `true`인지 확인합니다.
+4. status characteristic을 읽어 `battery {mV}mV {percent}%` 값이 나오는지 확인합니다.
+5. command characteristic에 임의의 텍스트를 쓴 뒤 `bluetooth_data_received`에 같은 값이 기록됐는지
+   확인합니다.
 
 ---
 
