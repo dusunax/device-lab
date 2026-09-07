@@ -1,8 +1,3 @@
-// Snow status-card firmware
-// Expected Arduino IDE sketch path: e-paper/ESP32S3/snow-status-card/snow-status-card.ino
-// Includes Serial JSON telemetry, ADC battery voltage checks, I2C scanner diagnostics, and
-// secured BLE advertising with data characteristics.
-
 #include <WiFi.h>
 #include <Wire.h>
 #include <time.h>
@@ -10,11 +5,10 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLESecurity.h>
-#include <esp_adc/adc_oneshot.h>
-#include <esp_adc/adc_cali.h>
-#include <esp_adc/adc_cali_scheme.h>
 #include "secrets.h"
 #include "src/snow_telemetry.h"
+#include "src/snow_display.h"
+#include "src/snow_battery.h"
 #include "src/waveshare_epaper_1in54g/EPD_1in54g.h"
 #include "src/waveshare_epaper_1in54g/GUI_Paint.h"
 #include "src/waveshare_epaper_1in54g/fonts.h"
@@ -30,14 +24,13 @@
 #define SNOW_FIRMWARE_VERSION "0.0.5"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
-#define SNOW_BATTERY_ADC_UNIT ADC_UNIT_1
-#define SNOW_BATTERY_ADC_CHANNEL ADC_CHANNEL_3
-#define SNOW_BATTERY_ADC_ATTEN ADC_ATTEN_DB_12
-#define SNOW_BATTERY_ADC_BITWIDTH ADC_BITWIDTH_12
 #define SNOW_BATTERY_DIVIDER_RATIO 2.0f
 #define SNOW_BATTERY_MIN_MV 3000
+#define SNOW_BATTERY_MAX_MV 4300
 #define SNOW_BATTERY_FULL_MV 4120
 #define SNOW_BLE_DEVICE_NAME "Snow"
+#define SNOW_BLE_DEVICE_NAME_JSON "{\"device_name\":\"" SNOW_BLE_DEVICE_NAME "\"}"
+#define SNOW_DATE_UNKNOWN "NO DATE"
 #define SNOW_BLE_SERVICE_UUID "7d8c0f2a-6f8a-4d4c-9d4a-0a2c0f8b1540"
 // Snow -> phone: read-only status string (battery voltage/percent), requires pairing.
 #define SNOW_BLE_STATUS_CHAR_UUID "cdd36062-d8f1-43ba-9858-bd405c6152f8"
@@ -53,54 +46,43 @@ bool batteryOk = false;
 bool bleOk = false;
 bool bleConnected = false;
 int lastBatteryVoltageMv = 0;
-char dateLine[16] = "NO DATE";
-// Non-empty while a passkey is being displayed for pairing; shown in place of
-// "SNOW READY" on the status card. Cleared once authentication completes.
+char dateLine[16] = SNOW_DATE_UNKNOWN;
+// Non-empty while a passkey is displayed for pairing; shown instead of "SNOW READY".
 char pairingPasskeyLine[8] = "";
 
 BLECharacteristic *statusCharacteristic = nullptr;
 
-// BLE advertising starts early in setup(), well before the e-paper module,
-// image buffer, and Paint state are initialized. A client can connect during
-// that window, so BLE callbacks must not attempt a redraw until the first
-// showOpenFace() call in setup() has actually completed.
+// Guards BLE callbacks against redrawing before setup()'s first draw completes.
 bool displayReady = false;
 
-// BLE callbacks only request a redraw; only loop() performs it. See
-// docs/e-paper/troubleshooting.md for why.
+// BLE callbacks only request a redraw; only loop() performs it. See troubleshooting.md #9.
 volatile bool redrawRequested = false;
 
 void showOpenFace();  // Defined below; needed here because callbacks trigger a redraw.
 
 class SnowBleServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* server) override {
-    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_CONNECTED, "BLE client connected", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_CONNECTED, "BLE client connected", SNOW_BLE_DEVICE_NAME_JSON);
     bleConnected = true;
-    // Connect/disconnect is a rare, meaningful state change, so refreshing
-    // the display for it is an intentional exception to "draw once only" —
-    // but the actual (slow) redraw happens in loop(), never here. See the
-    // redrawRequested comment for why.
     if (displayReady) {
       redrawRequested = true;
     }
   }
 
   void onDisconnect(BLEServer* server) override {
-    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_DISCONNECTED, "BLE client disconnected", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_CLIENT_DISCONNECTED, "BLE client disconnected", SNOW_BLE_DEVICE_NAME_JSON);
     bleConnected = false;
     if (displayReady) {
       redrawRequested = true;
     }
     server->getAdvertising()->start();
-    telemetryLog(TELEMETRY_INFO, BLUETOOTH_ADVERTISING_STARTED, "BLE advertising restarted", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_INFO, BLUETOOTH_ADVERTISING_STARTED, "BLE advertising restarted", SNOW_BLE_DEVICE_NAME_JSON);
   }
 };
 
 SnowBleServerCallbacks snowBleCallbacks;
 
-// Handles the write-only command characteristic. The content is only logged,
-// never executed/parsed as a command, so an unexpected or malformed payload
-// cannot do anything beyond appear in the log.
+// Received value is only logged, never executed as a command.
 class SnowCommandCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* characteristic) override {
     String value = characteristic->getValue();
@@ -117,9 +99,7 @@ class SnowCommandCallbacks : public BLECharacteristicCallbacks {
 
 SnowCommandCallbacks snowCommandCallbacks;
 
-// IO capability is display-only (Snow can show a passkey, has no input), so
-// pairing uses a fresh random passkey per connection rather than a fixed one
-// baked into the firmware — anyone reading this source can't pre-know it.
+// Fresh random passkey per connection, not a fixed one baked into the source.
 class SnowSecurityCallbacks : public BLESecurityCallbacks {
   uint32_t onPassKeyRequest() override {
     return 0;  // Unused: Snow only displays a passkey, it never types one in.
@@ -150,8 +130,8 @@ class SnowSecurityCallbacks : public BLESecurityCallbacks {
     bool authOk = desc->sec_state.encrypted && desc->sec_state.authenticated;
     char details[64];
     snprintf(details, sizeof(details), "{\"encrypted\":%s,\"authenticated\":%s}",
-             desc->sec_state.encrypted ? "true" : "false",
-             desc->sec_state.authenticated ? "true" : "false");
+      desc->sec_state.encrypted ? "true" : "false",
+      desc->sec_state.authenticated ? "true" : "false");
     telemetryLog(authOk ? TELEMETRY_INFO : TELEMETRY_WARNING, BLUETOOTH_AUTH_COMPLETE, "BLE authentication completed", details);
 
     pairingPasskeyLine[0] = '\0';
@@ -162,7 +142,7 @@ class SnowSecurityCallbacks : public BLESecurityCallbacks {
 #else
   void onAuthenticationComplete(esp_ble_auth_cmpl_t desc) override {
     telemetryLog(desc.success ? TELEMETRY_INFO : TELEMETRY_WARNING, BLUETOOTH_AUTH_COMPLETE, "BLE authentication completed",
-                 desc.success ? "{\"success\":true}" : "{\"success\":false}");
+      desc.success ? "{\"success\":true}" : "{\"success\":false}");
 
     pairingPasskeyLine[0] = '\0';
     if (displayReady) {
@@ -177,9 +157,6 @@ bool initBluetoothAdvertising() {
 
   BLEDevice::init(SNOW_BLE_DEVICE_NAME);
 
-  // Display-only IO + bonding + MITM + secure connections: pairing requires
-  // the phone user to type the passkey Snow shows, so only someone who can
-  // see the device's screen (or Serial log) can complete pairing.
   BLESecurity* security = new BLESecurity();
   security->setCapability(ESP_IO_CAP_OUT);
   security->setPassKey(false, 0);  // false = fresh random passkey per connection
@@ -188,14 +165,14 @@ bool initBluetoothAdvertising() {
 
   BLEServer* server = BLEDevice::createServer();
   if (server == nullptr) {
-    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE server creation failed", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE server creation failed", SNOW_BLE_DEVICE_NAME_JSON);
     return false;
   }
 
   server->setCallbacks(&snowBleCallbacks);
   BLEService* service = server->createService(SNOW_BLE_SERVICE_UUID);
   if (service == nullptr) {
-    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE service creation failed", "{\"device_name\":\"Snow\"}");
+    telemetryLog(TELEMETRY_WARNING, BLUETOOTH_INIT_START, "BLE service creation failed", SNOW_BLE_DEVICE_NAME_JSON);
     return false;
   }
 
@@ -225,188 +202,20 @@ bool initBluetoothAdvertising() {
   return true;
 }
 
-void drawCentered(const char* text, int y, sFONT* font, UWORD fg, UWORD bg) {
-  int len = 0;
-  while (text[len] != '\0') len++;
-  int w = len * font->Width;
-  int x = (EPD_1IN54G_WIDTH - w) / 2;
-  if (x < 0) x = 0;
-  Paint_DrawString_EN(x, y, text, font, fg, bg);
-}
-
-void appendAddress(char* buffer, size_t bufferSize, const char* addressText, bool needsSeparator) {
-  size_t used = strlen(buffer);
-  if (needsSeparator && used + 1 < bufferSize) {
-    buffer[used++] = ',';
-    buffer[used] = '\0';
-  }
-
-  for (size_t i = 0; addressText[i] != '\0' && used + 1 < bufferSize; i++) {
-    buffer[used++] = addressText[i];
-  }
-  buffer[used] = '\0';
-}
-
-void scanI2CBus() {
-  telemetryLog(TELEMETRY_INFO, I2C_SCAN_START, "I2C scan started", "{\"i2c_sda\":47,\"i2c_scl\":48,\"address_start\":1,\"address_end\":126}");
-
-  int foundCount = 0;
-  char foundAddresses[160];
-  foundAddresses[0] = '\0';
-
-  for (uint8_t address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    uint8_t error = Wire.endTransmission();
-
-    if (error == 0) {
-      char addressText[8];
-      snprintf(addressText, sizeof(addressText), "0x%02X", address);
-
-      appendAddress(foundAddresses, sizeof(foundAddresses), addressText, foundCount > 0);
-      foundCount++;
-
-      char details[64];
-      snprintf(details, sizeof(details), "{\"address\":\"%s\"}", addressText);
-      telemetryLog(TELEMETRY_INFO, I2C_SCAN_DEVICE_FOUND, "I2C device found", details);
-    }
-  }
-
-  char details[224];
-  snprintf(details, sizeof(details), "{\"found_count\":%d,\"addresses\":\"%s\"}", foundCount, foundAddresses);
-  telemetryLog(foundCount > 0 ? TELEMETRY_INFO : TELEMETRY_WARNING, I2C_SCAN_DONE, "I2C scan completed", details);
-}
-
-static adc_oneshot_unit_handle_t batteryAdcHandle = NULL;
-static adc_cali_handle_t batteryAdcCaliHandle = NULL;
-static bool batteryAdcInitialized = false;
-static bool batteryAdcCalibrated = false;
-
-int estimateBatteryPercent(int voltageMv) {
-  if (voltageMv <= SNOW_BATTERY_MIN_MV) {
-    return 0;
-  }
-  if (voltageMv >= SNOW_BATTERY_FULL_MV) {
-    return 100;
-  }
-  return (int)(((long)(voltageMv - SNOW_BATTERY_MIN_MV) * 100L) / (SNOW_BATTERY_FULL_MV - SNOW_BATTERY_MIN_MV));
-}
-
-bool initBatteryAdc() {
-  if (batteryAdcInitialized) {
-    return true;
-  }
-
-  telemetryLog(TELEMETRY_INFO, BATTERY_ADC_INIT, "Battery ADC init started", "{\"adc_unit\":1,\"adc_channel\":3,\"attenuation\":\"ADC_ATTEN_DB_12\",\"bitwidth\":12}");
-
-  adc_oneshot_unit_init_cfg_t unitConfig = {};
-  unitConfig.unit_id = SNOW_BATTERY_ADC_UNIT;
-  esp_err_t err = adc_oneshot_new_unit(&unitConfig, &batteryAdcHandle);
-  if (err != ESP_OK) {
-    char details[64];
-    snprintf(details, sizeof(details), "{\"step\":\"new_unit\",\"esp_err\":%d}", (int)err);
-    telemetryLog(TELEMETRY_WARNING, BATTERY_VOLTAGE_READ_FAILED, "Battery ADC init failed", details);
-    return false;
-  }
-
-  adc_oneshot_chan_cfg_t channelConfig = {};
-  channelConfig.atten = SNOW_BATTERY_ADC_ATTEN;
-  channelConfig.bitwidth = SNOW_BATTERY_ADC_BITWIDTH;
-  err = adc_oneshot_config_channel(batteryAdcHandle, SNOW_BATTERY_ADC_CHANNEL, &channelConfig);
-  if (err != ESP_OK) {
-    char details[64];
-    snprintf(details, sizeof(details), "{\"step\":\"config_channel\",\"esp_err\":%d}", (int)err);
-    telemetryLog(TELEMETRY_WARNING, BATTERY_VOLTAGE_READ_FAILED, "Battery ADC init failed", details);
-    return false;
-  }
-
-  adc_cali_curve_fitting_config_t caliConfig = {};
-  caliConfig.unit_id = SNOW_BATTERY_ADC_UNIT;
-  caliConfig.atten = SNOW_BATTERY_ADC_ATTEN;
-  caliConfig.bitwidth = SNOW_BATTERY_ADC_BITWIDTH;
-  err = adc_cali_create_scheme_curve_fitting(&caliConfig, &batteryAdcCaliHandle);
-  batteryAdcCalibrated = (err == ESP_OK);
-
-  batteryAdcInitialized = true;
-  char details[80];
-  snprintf(details, sizeof(details), "{\"adc_unit\":1,\"adc_channel\":3,\"calibrated\":%s}", batteryAdcCalibrated ? "true" : "false");
-  telemetryLog(TELEMETRY_INFO, BATTERY_ADC_INIT, "Battery ADC init completed", details);
-  return true;
-}
-
 void logBatteryVoltage() {
-  if (!initBatteryAdc()) {
+  BatteryReading reading = readBatteryVoltage(SNOW_BATTERY_DIVIDER_RATIO, SNOW_BATTERY_MIN_MV, SNOW_BATTERY_MAX_MV, SNOW_BATTERY_FULL_MV);
+  if (!reading.readOk) {
     return;
   }
 
-  int adcRaw = 0;
-  esp_err_t err = adc_oneshot_read(batteryAdcHandle, SNOW_BATTERY_ADC_CHANNEL, &adcRaw);
-  if (err != ESP_OK) {
-    char details[64];
-    snprintf(details, sizeof(details), "{\"step\":\"read\",\"esp_err\":%d}", (int)err);
-    telemetryLog(TELEMETRY_WARNING, BATTERY_VOLTAGE_READ_FAILED, "Battery ADC read failed", details);
-    return;
-  }
-
-  int adcMv = 0;
-  if (batteryAdcCalibrated) {
-    err = adc_cali_raw_to_voltage(batteryAdcCaliHandle, adcRaw, &adcMv);
-    if (err != ESP_OK) {
-      char details[80];
-      snprintf(details, sizeof(details), "{\"step\":\"calibrate\",\"adc_raw\":%d,\"esp_err\":%d}", adcRaw, (int)err);
-      telemetryLog(TELEMETRY_WARNING, BATTERY_VOLTAGE_READ_FAILED, "Battery ADC calibration failed", details);
-      return;
-    }
-  } else {
-    adcMv = (int)(((long)adcRaw * 3300L) / 4096L);
-  }
-
-  int voltageMv = (int)(adcMv * SNOW_BATTERY_DIVIDER_RATIO);
-  int estimatedPercent = estimateBatteryPercent(voltageMv);
-  bool validVoltage = voltageMv >= SNOW_BATTERY_MIN_MV && voltageMv <= 4300;
-  lastBatteryVoltageMv = voltageMv;
-  batteryOk = validVoltage;
+  lastBatteryVoltageMv = reading.voltageMv;
+  batteryOk = reading.inRange;
 
   if (statusCharacteristic != nullptr) {
     char statusValue[32];
-    snprintf(statusValue, sizeof(statusValue), "battery %dmV %d%%", voltageMv, estimatedPercent);
+    snprintf(statusValue, sizeof(statusValue), "battery %dmV %d%%", reading.voltageMv, reading.percent);
     statusCharacteristic->setValue(statusValue);
   }
-
-  char details[192];
-  snprintf(details, sizeof(details),
-           "{\"adc_unit\":1,\"adc_channel\":3,\"adc_raw\":%d,\"adc_mv\":%d,\"voltage_mv\":%d,\"voltage_v\":%.2f,\"estimated_percent\":%d,\"calibrated\":%s}",
-           adcRaw,
-           adcMv,
-           voltageMv,
-           voltageMv / 1000.0f,
-           estimatedPercent,
-           batteryAdcCalibrated ? "true" : "false");
-
-  telemetryLog(validVoltage ? TELEMETRY_INFO : TELEMETRY_WARNING, BATTERY_VOLTAGE_READ, "Battery voltage read", details);
-}
-
-bool connectWiFi() {
-  telemetryLog(TELEMETRY_INFO, WIFI_CONNECTING, "Wi-Fi connection started", "{\"retry_limit\":24,\"retry_delay_ms\":500}");
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 24) {
-    delay(500);
-    retry++;
-  }
-
-  char details[48];
-  snprintf(details, sizeof(details), "{\"retry_count\":%d}", retry);
-
-  if (WiFi.status() == WL_CONNECTED) {
-    telemetryLog(TELEMETRY_INFO, WIFI_CONNECTED, "Wi-Fi connected", details);
-    return true;
-  }
-
-  telemetryLog(TELEMETRY_WARNING, WIFI_FAILED, "Wi-Fi connection failed", details);
-  return false;
 }
 
 bool updateTodayDate() {
@@ -423,7 +232,7 @@ bool updateTodayDate() {
   }
 
   if (retry >= 20) {
-    snprintf(dateLine, sizeof(dateLine), "NO DATE");
+    snprintf(dateLine, sizeof(dateLine), SNOW_DATE_UNKNOWN);
     char details[48];
     snprintf(details, sizeof(details), "{\"retry_count\":%d}", retry);
     telemetryLog(TELEMETRY_WARNING, TIME_SYNC_FAILED, "NTP time sync failed", details);
@@ -431,9 +240,9 @@ bool updateTodayDate() {
   }
 
   snprintf(dateLine, sizeof(dateLine), "%04d-%02d-%02d",
-           timeinfo.tm_year + 1900,
-           timeinfo.tm_mon + 1,
-           timeinfo.tm_mday);
+      timeinfo.tm_year + 1900,
+      timeinfo.tm_mon + 1,
+      timeinfo.tm_mday);
 
   char details[80];
   snprintf(details, sizeof(details), "{\"date\":\"%s\",\"retry_count\":%d}", dateLine, retry);
@@ -482,13 +291,6 @@ void drawBaseCard() {
   }
 }
 
-void drawEyesOpen() {
-  // Small dot eyes: simple, not glossy.
-  Paint_DrawCircle(75, 181, 3, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-  Paint_DrawCircle(125, 181, 3, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-  Paint_DrawLine(88, 188, 112, 188, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
-}
-
 void showOpenFace() {
   drawBaseCard();
   drawEyesOpen();
@@ -533,7 +335,7 @@ void setup() {
   Paint_SetScale(4);
   Paint_SelectImage(image);
 
-  wifiOk = connectWiFi();
+  wifiOk = connectWiFi(WIFI_SSID, WIFI_PASSWORD);
   if (wifiOk) {
     updateTodayDate();
   }
