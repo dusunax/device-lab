@@ -15,6 +15,7 @@
 #include <esp_adc/adc_cali_scheme.h>
 #include "secrets.h"
 #include "src/snow_telemetry.h"
+#include "src/snow_display.h"
 #include "src/waveshare_epaper_1in54g/EPD_1in54g.h"
 #include "src/waveshare_epaper_1in54g/GUI_Paint.h"
 #include "src/waveshare_epaper_1in54g/fonts.h"
@@ -225,71 +226,10 @@ bool initBluetoothAdvertising() {
   return true;
 }
 
-void drawCentered(const char* text, int y, sFONT* font, UWORD fg, UWORD bg) {
-  int len = 0;
-  while (text[len] != '\0') len++;
-  int w = len * font->Width;
-  int x = (EPD_1IN54G_WIDTH - w) / 2;
-  if (x < 0) x = 0;
-  Paint_DrawString_EN(x, y, text, font, fg, bg);
-}
-
-void appendAddress(char* buffer, size_t bufferSize, const char* addressText, bool needsSeparator) {
-  size_t used = strlen(buffer);
-  if (needsSeparator && used + 1 < bufferSize) {
-    buffer[used++] = ',';
-    buffer[used] = '\0';
-  }
-
-  for (size_t i = 0; addressText[i] != '\0' && used + 1 < bufferSize; i++) {
-    buffer[used++] = addressText[i];
-  }
-  buffer[used] = '\0';
-}
-
-void scanI2CBus() {
-  telemetryLog(TELEMETRY_INFO, I2C_SCAN_START, "I2C scan started", "{\"i2c_sda\":47,\"i2c_scl\":48,\"address_start\":1,\"address_end\":126}");
-
-  int foundCount = 0;
-  char foundAddresses[160];
-  foundAddresses[0] = '\0';
-
-  for (uint8_t address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    uint8_t error = Wire.endTransmission();
-
-    if (error == 0) {
-      char addressText[8];
-      snprintf(addressText, sizeof(addressText), "0x%02X", address);
-
-      appendAddress(foundAddresses, sizeof(foundAddresses), addressText, foundCount > 0);
-      foundCount++;
-
-      char details[64];
-      snprintf(details, sizeof(details), "{\"address\":\"%s\"}", addressText);
-      telemetryLog(TELEMETRY_INFO, I2C_SCAN_DEVICE_FOUND, "I2C device found", details);
-    }
-  }
-
-  char details[224];
-  snprintf(details, sizeof(details), "{\"found_count\":%d,\"addresses\":\"%s\"}", foundCount, foundAddresses);
-  telemetryLog(foundCount > 0 ? TELEMETRY_INFO : TELEMETRY_WARNING, I2C_SCAN_DONE, "I2C scan completed", details);
-}
-
 static adc_oneshot_unit_handle_t batteryAdcHandle = NULL;
 static adc_cali_handle_t batteryAdcCaliHandle = NULL;
 static bool batteryAdcInitialized = false;
 static bool batteryAdcCalibrated = false;
-
-int estimateBatteryPercent(int voltageMv) {
-  if (voltageMv <= SNOW_BATTERY_MIN_MV) {
-    return 0;
-  }
-  if (voltageMv >= SNOW_BATTERY_FULL_MV) {
-    return 100;
-  }
-  return (int)(((long)(voltageMv - SNOW_BATTERY_MIN_MV) * 100L) / (SNOW_BATTERY_FULL_MV - SNOW_BATTERY_MIN_MV));
-}
 
 bool initBatteryAdc() {
   if (batteryAdcInitialized) {
@@ -361,7 +301,7 @@ void logBatteryVoltage() {
   }
 
   int voltageMv = (int)(adcMv * SNOW_BATTERY_DIVIDER_RATIO);
-  int estimatedPercent = estimateBatteryPercent(voltageMv);
+  int estimatedPercent = estimateBatteryPercent(voltageMv, SNOW_BATTERY_MIN_MV, SNOW_BATTERY_FULL_MV);
   bool validVoltage = voltageMv >= SNOW_BATTERY_MIN_MV && voltageMv <= 4300;
   lastBatteryVoltageMv = voltageMv;
   batteryOk = validVoltage;
@@ -374,7 +314,7 @@ void logBatteryVoltage() {
 
   char details[192];
   snprintf(details, sizeof(details),
-           "{\"adc_unit\":1,\"adc_channel\":3,\"adc_raw\":%d,\"adc_mv\":%d,\"voltage_mv\":%d,\"voltage_v\":%.2f,\"estimated_percent\":%d,\"calibrated\":%s}",
+          "{\"adc_unit\":1,\"adc_channel\":3,\"adc_raw\":%d,\"adc_mv\":%d,\"voltage_mv\":%d,\"voltage_v\":%.2f,\"estimated_percent\":%d,\"calibrated\":%s}",
            adcRaw,
            adcMv,
            voltageMv,
@@ -383,30 +323,6 @@ void logBatteryVoltage() {
            batteryAdcCalibrated ? "true" : "false");
 
   telemetryLog(validVoltage ? TELEMETRY_INFO : TELEMETRY_WARNING, BATTERY_VOLTAGE_READ, "Battery voltage read", details);
-}
-
-bool connectWiFi() {
-  telemetryLog(TELEMETRY_INFO, WIFI_CONNECTING, "Wi-Fi connection started", "{\"retry_limit\":24,\"retry_delay_ms\":500}");
-
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int retry = 0;
-  while (WiFi.status() != WL_CONNECTED && retry < 24) {
-    delay(500);
-    retry++;
-  }
-
-  char details[48];
-  snprintf(details, sizeof(details), "{\"retry_count\":%d}", retry);
-
-  if (WiFi.status() == WL_CONNECTED) {
-    telemetryLog(TELEMETRY_INFO, WIFI_CONNECTED, "Wi-Fi connected", details);
-    return true;
-  }
-
-  telemetryLog(TELEMETRY_WARNING, WIFI_FAILED, "Wi-Fi connection failed", details);
-  return false;
 }
 
 bool updateTodayDate() {
@@ -482,13 +398,6 @@ void drawBaseCard() {
   }
 }
 
-void drawEyesOpen() {
-  // Small dot eyes: simple, not glossy.
-  Paint_DrawCircle(75, 181, 3, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-  Paint_DrawCircle(125, 181, 3, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
-  Paint_DrawLine(88, 188, 112, 188, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
-}
-
 void showOpenFace() {
   drawBaseCard();
   drawEyesOpen();
@@ -533,7 +442,7 @@ void setup() {
   Paint_SetScale(4);
   Paint_SelectImage(image);
 
-  wifiOk = connectWiFi();
+  wifiOk = connectWiFi(WIFI_SSID, WIFI_PASSWORD);
   if (wifiOk) {
     updateTodayDate();
   }
