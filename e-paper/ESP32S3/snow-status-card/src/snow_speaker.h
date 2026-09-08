@@ -5,6 +5,5 @@
 
 bool initSpeaker();
 void playBootChime();
-void playShutdownChime();
 
 #endif // SNOW_SPEAKER_H

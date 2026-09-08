@@ -312,10 +312,7 @@ void setup() {
   scanI2CBus();
   logBatteryVoltage();
   bleOk = initBluetoothAdvertising();
-
-  if (initSpeaker()) {
-    playBootChime();
-  }
+  bool speakerOk = initSpeaker();
 
   telemetryLog(TELEMETRY_INFO, DISPLAY_INIT_START, "Display module init started");
   if (DEV_Module_Init() != 0) {
@@ -352,6 +349,10 @@ void setup() {
   displayReady = true;
 
   telemetryLog(TELEMETRY_INFO, DISPLAY_REFRESH_DONE, "Display refresh completed", "{\"mode\":\"full_refresh\"}");
+
+  if (speakerOk) {
+    playBootChime();
+  }
 }
 
 void loop() {
