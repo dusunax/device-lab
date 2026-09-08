@@ -33,6 +33,43 @@ void appendAddress(char* buffer, size_t bufferSize, const char* addressText, boo
   buffer[used] = '\0';
 }
 
+bool recoverI2CBus(int sdaPin, int sclPin) {
+  telemetryLog(TELEMETRY_INFO, I2C_BUS_RECOVERED, "I2C bus check started", "{}");
+
+  pinMode(sdaPin, INPUT_PULLUP);
+  pinMode(sclPin, OUTPUT);
+  digitalWrite(sclPin, HIGH);
+
+  if (digitalRead(sdaPin) != LOW) {
+    telemetryLog(TELEMETRY_INFO, I2C_BUS_RECOVERED, "I2C bus check completed", "{\"stuck\":false}");
+    return false;  // SDA not stuck, nothing to recover
+  }
+
+  // A slave left mid-transaction (e.g. by a reset during I2C activity) can hold
+  // SDA low forever. Clocking SCL up to 9 times lets it finish and release SDA,
+  // then a manual STOP condition puts the bus back in a known idle state.
+  for (int i = 0; i < 9 && digitalRead(sdaPin) == LOW; i++) {
+    digitalWrite(sclPin, LOW);
+    delayMicroseconds(5);
+    digitalWrite(sclPin, HIGH);
+    delayMicroseconds(5);
+  }
+
+  pinMode(sdaPin, OUTPUT);
+  digitalWrite(sdaPin, LOW);
+  delayMicroseconds(5);
+  digitalWrite(sclPin, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(sdaPin, HIGH);
+  delayMicroseconds(5);
+
+  bool recovered = digitalRead(sdaPin) != LOW;
+  char details[48];
+  snprintf(details, sizeof(details), "{\"recovered\":%s}", recovered ? "true" : "false");
+  telemetryLog(recovered ? TELEMETRY_WARNING : TELEMETRY_ERROR, I2C_BUS_RECOVERED, "I2C bus stuck low, recovery attempted", details);
+  return recovered;
+}
+
 void scanI2CBus() {
   telemetryLog(TELEMETRY_INFO, I2C_SCAN_START, "I2C scan started", "{\"i2c_sda\":47,\"i2c_scl\":48,\"address_start\":1,\"address_end\":126}");
 

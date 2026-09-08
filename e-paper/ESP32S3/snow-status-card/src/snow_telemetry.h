@@ -48,7 +48,8 @@ enum TelemetryEvent {
 
   I2C_SCAN_START,
   I2C_SCAN_DEVICE_FOUND,
-  I2C_SCAN_DONE
+  I2C_SCAN_DONE,
+  I2C_BUS_RECOVERED
 };
 
 void telemetryLog(TelemetryLevel level, TelemetryEvent event, const char* message);

@@ -10,6 +10,7 @@ void drawCentered(const char* text, int y, sFONT* font, UWORD fg, UWORD bg);
 void drawEyesOpen();
 void appendAddress(char* buffer, size_t bufferSize, const char* addressText, bool needsSeparator);
 void scanI2CBus();
+bool recoverI2CBus(int sdaPin, int sclPin);
 bool connectWiFi(const char* ssid, const char* password);
 
 #endif // SNOW_DISPLAY_H

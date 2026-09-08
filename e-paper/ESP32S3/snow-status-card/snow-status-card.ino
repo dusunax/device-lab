@@ -306,6 +306,7 @@ void setup() {
   snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security,speaker\"}", SNOW_FIRMWARE_VERSION);
   telemetryLog(TELEMETRY_INFO, FIRMWARE_VERSION, "Snow firmware version", versionDetails);
 
+  recoverI2CBus(SNOW_I2C_SDA_PIN, SNOW_I2C_SCL_PIN);
   Wire.begin(SNOW_I2C_SDA_PIN, SNOW_I2C_SCL_PIN);
   Wire.setClock(400000UL);
   scanI2CBus();
