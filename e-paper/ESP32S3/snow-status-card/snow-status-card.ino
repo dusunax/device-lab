@@ -9,6 +9,7 @@
 #include "src/snow_telemetry.h"
 #include "src/snow_display.h"
 #include "src/snow_battery.h"
+#include "src/snow_speaker.h"
 #include "src/waveshare_epaper_1in54g/EPD_1in54g.h"
 #include "src/waveshare_epaper_1in54g/GUI_Paint.h"
 #include "src/waveshare_epaper_1in54g/fonts.h"
@@ -21,7 +22,7 @@
 #error "Snow needs Tools > USB CDC On Boot > Enabled to show Serial Monitor logs. Enable it, then compile/upload again."
 #endif
 
-#define SNOW_FIRMWARE_VERSION "0.0.5"
+#define SNOW_FIRMWARE_VERSION "0.0.6"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
 #define SNOW_BATTERY_DIVIDER_RATIO 2.0f
@@ -302,7 +303,7 @@ void setup() {
   delay(2000);  // Give Arduino IDE Serial Monitor time to attach after USB reset.
   telemetryLog(TELEMETRY_INFO, SYSTEM_START, "Snow status-card firmware started", "{\"baudrate\":115200}");
   char versionDetails[192];
-  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security\"}", SNOW_FIRMWARE_VERSION);
+  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security,speaker\"}", SNOW_FIRMWARE_VERSION);
   telemetryLog(TELEMETRY_INFO, FIRMWARE_VERSION, "Snow firmware version", versionDetails);
 
   Wire.begin(SNOW_I2C_SDA_PIN, SNOW_I2C_SCL_PIN);
@@ -310,6 +311,10 @@ void setup() {
   scanI2CBus();
   logBatteryVoltage();
   bleOk = initBluetoothAdvertising();
+
+  if (initSpeaker()) {
+    playStartupChime();
+  }
 
   telemetryLog(TELEMETRY_INFO, DISPLAY_INIT_START, "Display module init started");
   if (DEV_Module_Init() != 0) {

@@ -59,6 +59,9 @@ Snow firmware의 Serial Monitor 로그를 사람이 읽는 임시 문자열이 �
 | `battery_adc_init` | `info` | ADC 기반 배터리 전압 측정 초기화 시작 |
 | `battery_voltage_read` | `info` 또는 `warning` | ADC 기반 배터리 전압 읽기 완료. 유효 전압 범위면 `info`, 범위 밖이면 `warning` |
 | `battery_voltage_read_failed` | `warning` | ADC 배터리 전압 읽기 실패 |
+| `speaker_init_start` | `info` | ES8311 코덱/I2S 초기화 시작 및 완료(겸용, `message`로 구분) |
+| `speaker_init_failed` | `warning` | ES8311 코덱 또는 I2S 초기화 실패 |
+| `speaker_tone_played` | `info` | 합성 비프음 재생 완료 |
 | `bluetooth_init_start` | `info` | BLE advertising 초기화 시작 |
 | `bluetooth_advertising_started` | `info` | BLE peripheral advertising 시작 또는 재시작 |
 | `bluetooth_client_connected` | `info` | BLE client 연결 확인 |
@@ -151,6 +154,47 @@ Waveshare 문서에는 충전 회로가 있다고 명시되어 있지만, 현재
 | 판정 | 전압은 만충에 가까운 범위에서 안정적. 현재 상태만으로 충전 진행 여부는 단정하지 않음 |
 
 현재 배터리 전압이 이미 만충에 가까우므로, 충전 기능 자체를 확인하려면 배터리 전압을 낮춘 뒤 USB 연결 후 `voltage_mv`가 회복되는지 다시 관찰합니다.
+
+---
+
+## Speaker 확인 기준
+
+ES8311 오디오 코덱(I2C 제어 + I2S 출력)과 NS4150B 앰프를 통해 스피커로 소리를 출력합니다.
+공식 예제(`Example/Arduino_3.2.0/examples/07_Audio_out`)의 ES8311 드라이버를 벤더링해 사용하고,
+2.87MB 크기의 공식 멜로디 샘플(`music.h`) 대신 짧은 합성 비프음(사인파)을 직접 생성합니다.
+
+펌웨어 기준:
+
+| 항목 | 값 |
+| --- | --- |
+| firmware version | `0.0.6` |
+| feature marker | `speaker` |
+| 코덱 | ES8311 (I2C 주소 `0x18`) |
+| I2S 핀 | MCLK `14`, BCLK `15`, LRCK `38`, DOUT `45`, DIN `16` |
+| 앰프 제어 핀 | PA_EN `42`, PA_CTRL `46` |
+
+확인 이벤트:
+
+| 이벤트 | 판정 기준 |
+| --- | --- |
+| `speaker_init_start` | `message`가 `Speaker init completed`이면 코덱/I2S 초기화 성공 |
+| `speaker_init_failed` | 발생 시 코덱 생성/초기화 또는 I2S 버스 초기화 실패 |
+| `speaker_tone_played` | 비프음 재생 완료. `details.notes`로 재생된 음 확인 |
+
+테스트 절차:
+
+1. Arduino IDE에서 `snow-status-card.ino`를 업로드합니다.
+2. Serial Monitor `115200`에서 `firmware_version`의 `features`에 `speaker`가 있는지 확인합니다.
+3. 부팅 시퀀스 중 `speaker_init_start`(완료 메시지)와 `speaker_tone_played`가 에러 없이 출력되는지 확인합니다.
+4. 보드 스피커에서 실제로 3음(C5-E5-G5) 비프음이 들리는지 청취로 확인합니다.
+
+실제 Snow 확인값:
+
+| 항목 | 값 |
+| --- | --- |
+| 코덱 초기화 | 성공 (`speaker_init_failed` 없음) |
+| 재생된 음 | `C5,E5,G5` |
+| 실기기 청취 | 확인함 |
 
 ---
 

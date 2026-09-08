@@ -49,6 +49,12 @@ static const char* eventToString(TelemetryEvent event) {
       return "battery_voltage_read";
     case BATTERY_VOLTAGE_READ_FAILED:
       return "battery_voltage_read_failed";
+    case SPEAKER_INIT_START:
+      return "speaker_init_start";
+    case SPEAKER_INIT_FAILED:
+      return "speaker_init_failed";
+    case SPEAKER_TONE_PLAYED:
+      return "speaker_tone_played";
     case BLUETOOTH_INIT_START:
       return "bluetooth_init_start";
     case BLUETOOTH_ADVERTISING_STARTED:

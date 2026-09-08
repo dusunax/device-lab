@@ -23,7 +23,7 @@
 | 🔋 배터리 측정 | 전압/배터리 상태 읽기 | Waveshare 공식 예제 기준 ADC1 Channel 3 전압 측정 구현. `battery_voltage_read`에서 약 4.12V 확인 | ✅ |
 | 🔵 Bluetooth | 폰에서 Snow 발견/연결 | BLE peripheral advertising 구현. BLE scanner 앱(nRF Connect)에서 `Snow` 발견·연결·서비스 UUID 일치 확인. 연결/해제 Serial telemetry와 e-paper 상태 표시(`BLE ADVERTISING`/`BLE CONNECTED`/`BLE FAIL`) 추가. 보안은 다음 BLE 통신 항목에서 적용 완료 | ✅ |
 | 📡 BLE 통신 | 폰 ↔ Snow 데이터 송수신 | status(읽기)/command(쓰기) characteristic 추가. 패스키 페어링 적용(display-only IO, bonding+MITM+secure connections). 폰에서 `battery 4148mV 100%` 읽기, `hello` 쓰기 후 `bluetooth_data_received` 로그 확인 | ✅ |
-| 🔊 Speaker | 비프음/멜로디 출력 | - | ⬜ |
+| 🔊 Speaker | 비프음/멜로디 출력 | ES8311 코덱(I2C+I2S) 드라이버 벤더링. 부팅 시 3음 합성 비프음(C5-E5-G5) 재생, 실기기에서 청취 확인 | ✅ |
 | 🎙️ Microphone | 마이크 입력 감지 | - | ⬜ |
 | 🌡️ 온도 | SHTC3 온도 읽기 | - | ⬜ |
 | 💧 습도 | SHTC3 습도 읽기 | - | ⬜ |
