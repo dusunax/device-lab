@@ -49,6 +49,12 @@ static const char* eventToString(TelemetryEvent event) {
       return "battery_voltage_read";
     case BATTERY_VOLTAGE_READ_FAILED:
       return "battery_voltage_read_failed";
+    case SPEAKER_INIT_START:
+      return "speaker_init_start";
+    case SPEAKER_INIT_FAILED:
+      return "speaker_init_failed";
+    case SPEAKER_TONE_PLAYED:
+      return "speaker_tone_played";
     case BLUETOOTH_INIT_START:
       return "bluetooth_init_start";
     case BLUETOOTH_ADVERTISING_STARTED:
@@ -69,6 +75,8 @@ static const char* eventToString(TelemetryEvent event) {
       return "i2c_scan_device_found";
     case I2C_SCAN_DONE:
       return "i2c_scan_done";
+    case I2C_BUS_RECOVERED:
+      return "i2c_bus_recovered";
     default:
       return "unknown_event";
   }
@@ -107,13 +115,18 @@ void telemetryLog(TelemetryLevel level, TelemetryEvent event, const char* messag
   telemetryLog(level, event, message, "{}");
 }
 
+// Longest line this function prints (firmware_version's details) is well under this.
+#define TELEMETRY_MIN_TX_BUFFER_BYTES 96
+
 void telemetryLog(TelemetryLevel level, TelemetryEvent event, const char* message, const char* detailsJson) {
   // ESP32-S3 native USB CDC (Serial) can block on print() when no host has
   // the port open (e.g. booting on battery with no USB attached), or when a
-  // host stops draining the TX buffer mid-stream. Skipping the log entirely
-  // when no host is attached keeps firmware timing (BLE, display) unaffected
-  // by whether anyone happens to be watching Serial.
-  if (!Serial) {
+  // host stops draining the TX buffer mid-stream. `Serial` only reflects
+  // host-attached state, not buffer space, so a full TX buffer with an
+  // attached-but-not-draining host can still block print() for a long time.
+  // Skipping the log whenever there isn't enough buffer headroom keeps
+  // firmware timing (BLE, display, speaker) unaffected either way.
+  if (!Serial || Serial.availableForWrite() < TELEMETRY_MIN_TX_BUFFER_BYTES) {
     return;
   }
 

@@ -33,10 +33,16 @@ SNOW READY
 
 ```text
 e-paper/ESP32S3/snow-status-card/
-  snow-status-card.ino        # e-paper 상태 카드 스케치. 내부 기기 별칭은 Snow
+  snow-status-card.ino        # e-paper 상태 카드 스케치. 전역 상태와 BLE 콜백. 내부 기기 별칭은 Snow
   secrets.example.h           # Git에 포함하는 예시 설정 파일
   src/snow_telemetry.*        # Serial JSON Lines telemetry
+  src/snow_display.*          # 전역 상태 없는 순수 함수 (draw, I2C scan, Wi-Fi 연결)
+  src/snow_battery.*          # 배터리 ADC 초기화/측정
+  src/snow_speaker.*          # ES8311 코덱 초기화, 합성 멜로디 재생
+  src/snow_melody.*           # 멜로디 데이터 (음 목록/길이/간격)
+  src/snow_pitches.h          # 표준 음이름(NOTE_C4 등) 매핑 유틸
   src/waveshare_epaper_1in54g -> vendor/waveshare_epaper_1in54g
+  src/es8311 -> vendor/es8311
 
 vendor/waveshare_epaper_1in54g/
   DEV_Config.*
@@ -46,6 +52,10 @@ vendor/waveshare_epaper_1in54g/
   font16.cpp
   font20.cpp
   font24.cpp
+
+vendor/es8311/
+  es8311.*                    # Waveshare 공식 예제(07_Audio_out) 벤더링
+  es8311_reg.h
 ```
 
 기능 영역은 `e-paper`로 관리하고, 실제 기기 별칭 `Snow`는 코드 내부와 문서 본문에서 사용합니다.
@@ -70,6 +80,21 @@ status(읽기)/command(쓰기) characteristic으로 폰 ↔ Snow 데이터를 �
 | status characteristic | `cdd36062-d8f1-43ba-9858-bd405c6152f8`, 읽기 전용, `battery {mV}mV {percent}%` |
 | command characteristic | `008b1a7b-7e83-4333-b5f5-b8913e93b937`, 쓰기 전용, 값은 로그만 남기고 실행하지 않음 |
 | 확인 이벤트 | `bluetooth_passkey_display`, `bluetooth_auth_complete`, `bluetooth_data_received` |
+
+## Speaker 테스트 기준
+
+ES8311 오디오 코덱(I2C 제어 + I2S 출력) + NS4150B 앰프를 통해 스피커로 소리를 출력합니다.
+음원은 별도 샘플 파일 없이 합성한 짧은 톤(사인파)입니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 코덱 | ES8311 (I2C 주소 `0x18`) |
+| I2C 핀 | SDA `47`, SCL `48` (기존 I2C 버스 공유) |
+| I2S 핀 | MCLK `14`, BCLK `15`, LRCK `38`, DOUT `45`, DIN `16` |
+| 앰프 제어 핀 | PA_EN `42`, PA_CTRL `46` |
+| 확인 이벤트 | `speaker_init_start`(시작/완료 겸용), `speaker_init_failed`, `speaker_tone_played` |
+| 범위 | e-paper 카드가 표시된 직후(`showOpenFace()` 이후) 부팅 멜로디 1회 재생. 실기기에서 청취로 확인 |
+| 멜로디 데이터 | `src/snow_melody.h/.cpp`(음 목록), `src/snow_pitches.h`(표준 음이름 매핑 유틸) |
 
 ## 배터리 측정 기준
 
