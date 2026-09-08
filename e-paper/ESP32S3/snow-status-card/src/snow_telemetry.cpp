@@ -115,13 +115,18 @@ void telemetryLog(TelemetryLevel level, TelemetryEvent event, const char* messag
   telemetryLog(level, event, message, "{}");
 }
 
+// Longest line this function prints (firmware_version's details) is well under this.
+#define TELEMETRY_MIN_TX_BUFFER_BYTES 96
+
 void telemetryLog(TelemetryLevel level, TelemetryEvent event, const char* message, const char* detailsJson) {
   // ESP32-S3 native USB CDC (Serial) can block on print() when no host has
   // the port open (e.g. booting on battery with no USB attached), or when a
-  // host stops draining the TX buffer mid-stream. Skipping the log entirely
-  // when no host is attached keeps firmware timing (BLE, display) unaffected
-  // by whether anyone happens to be watching Serial.
-  if (!Serial) {
+  // host stops draining the TX buffer mid-stream. `Serial` only reflects
+  // host-attached state, not buffer space, so a full TX buffer with an
+  // attached-but-not-draining host can still block print() for a long time.
+  // Skipping the log whenever there isn't enough buffer headroom keeps
+  // firmware timing (BLE, display, speaker) unaffected either way.
+  if (!Serial || Serial.availableForWrite() < TELEMETRY_MIN_TX_BUFFER_BYTES) {
     return;
   }
 
