@@ -91,7 +91,7 @@ ES8311 오디오 코덱(I2C 제어 + I2S 출력) + NS4150B 앰프를 통해 스�
 | I2S 핀 | MCLK `14`, BCLK `15`, LRCK `38`, DOUT `45`, DIN `16` |
 | 앰프 제어 핀 | PA_EN `42`, PA_CTRL `46` |
 | 확인 이벤트 | `speaker_init_start`(시작/완료 겸용), `speaker_init_failed`, `speaker_tone_played` |
-| 범위 | 부팅 시 3음(C5-E5-G5) 합성 비프음 1회 재생. 실기기에서 청취로 확인 |
+| 범위 | 부팅 시 ON 차임(C6→E6) 1회 재생. OFF 차임(E6→C6)은 함수만 준비되어 있고 아직 트리거되는 곳은 없음(Deep Sleep 항목에서 연결 예정). 실기기에서 청취로 확인 |
 
 ## 배터리 측정 기준
 

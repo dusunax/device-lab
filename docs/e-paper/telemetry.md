@@ -186,14 +186,14 @@ ES8311 오디오 코덱(I2C 제어 + I2S 출력)과 NS4150B 앰프를 통해 스
 1. Arduino IDE에서 `snow-status-card.ino`를 업로드합니다.
 2. Serial Monitor `115200`에서 `firmware_version`의 `features`에 `speaker`가 있는지 확인합니다.
 3. 부팅 시퀀스 중 `speaker_init_start`(완료 메시지)와 `speaker_tone_played`가 에러 없이 출력되는지 확인합니다.
-4. 보드 스피커에서 실제로 3음(C5-E5-G5) 비프음이 들리는지 청취로 확인합니다.
+4. 보드 스피커에서 실제로 ON 차임(C6→E6)이 들리는지 청취로 확인합니다.
 
 실제 Snow 확인값:
 
 | 항목 | 값 |
 | --- | --- |
 | 코덱 초기화 | 성공 (`speaker_init_failed` 없음) |
-| 재생된 음 | `C5,E5,G5` |
+| 재생된 음 | `C6,E6` (ON). `E6,C6`(OFF)은 함수만 준비, 아직 트리거 없음 |
 | 실기기 청취 | 확인함 |
 
 ---
