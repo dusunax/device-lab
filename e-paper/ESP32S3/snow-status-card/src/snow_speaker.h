@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 bool initSpeaker();
-void playStartupChime();
+void playBootChime();
+void playShutdownChime();
 
 #endif // SNOW_SPEAKER_H

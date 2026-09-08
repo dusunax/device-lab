@@ -14,7 +14,7 @@
 #define SNOW_SPEAKER_PA_EN_PIN 42
 #define SNOW_SPEAKER_SAMPLE_RATE 24000
 #define SNOW_SPEAKER_MCLK_MULTIPLE 256
-#define SNOW_SPEAKER_VOLUME 70
+#define SNOW_SPEAKER_VOLUME 95
 
 static I2SClass i2s;
 static bool speakerReady = false;
@@ -67,7 +67,7 @@ static void playTone(float frequencyHz, int durationMs) {
   while (written < totalSamples) {
     int count = min(chunkSamples, totalSamples - written);
     for (int i = 0; i < count; i++) {
-      buffer[i] = (int16_t)(sinf(2.0f * PI * frequencyHz * sampleIndex / SNOW_SPEAKER_SAMPLE_RATE) * 12000);
+      buffer[i] = (int16_t)(sinf(2.0f * PI * frequencyHz * sampleIndex / SNOW_SPEAKER_SAMPLE_RATE) * 22000);
       sampleIndex++;
     }
     i2s.write((uint8_t*)buffer, count * sizeof(int16_t));
@@ -75,12 +75,35 @@ static void playTone(float frequencyHz, int durationMs) {
   }
 }
 
-void playStartupChime() {
+static void playSilence(int durationMs) {
+  const int chunkSamples = 240;
+  int16_t buffer[chunkSamples] = {0};
+  int totalSamples = (SNOW_SPEAKER_SAMPLE_RATE * durationMs) / 1000;
+  int written = 0;
+
+  while (written < totalSamples) {
+    int count = min(chunkSamples, totalSamples - written);
+    i2s.write((uint8_t*)buffer, count * sizeof(int16_t));
+    written += count;
+  }
+}
+
+void playBootChime() {
   if (!speakerReady) {
     return;
   }
-  playTone(523.25f, 150);  // C5
-  playTone(659.25f, 150);  // E5
-  playTone(783.99f, 200);  // G5
-  telemetryLog(TELEMETRY_INFO, SPEAKER_TONE_PLAYED, "Speaker startup chime played", "{\"notes\":\"C5,E5,G5\"}");
+  playTone(1046.50f, 70);  // C6
+  playSilence(15);
+  playTone(1318.51f, 70);  // E6
+  telemetryLog(TELEMETRY_INFO, SPEAKER_TONE_PLAYED, "Speaker boot chime played", "{\"notes\":\"C6,E6\"}");
+}
+
+void playShutdownChime() {
+  if (!speakerReady) {
+    return;
+  }
+  playTone(1318.51f, 70);  // E6
+  playSilence(15);
+  playTone(1046.50f, 70);  // C6
+  telemetryLog(TELEMETRY_INFO, SPEAKER_TONE_PLAYED, "Speaker shutdown chime played", "{\"notes\":\"E6,C6\"}");
 }

@@ -314,7 +314,7 @@ void setup() {
   bleOk = initBluetoothAdvertising();
 
   if (initSpeaker()) {
-    playStartupChime();
+    playBootChime();
   }
 
   telemetryLog(TELEMETRY_INFO, DISPLAY_INIT_START, "Display module init started");
