@@ -179,21 +179,22 @@ ES8311 오디오 코덱(I2C 제어 + I2S 출력)과 NS4150B 앰프를 통해 스
 | --- | --- |
 | `speaker_init_start` | `message`가 `Speaker init completed`이면 코덱/I2S 초기화 성공 |
 | `speaker_init_failed` | 발생 시 코덱 생성/초기화 또는 I2S 버스 초기화 실패 |
-| `speaker_tone_played` | 비프음 재생 완료. `details.notes`로 재생된 음 확인 |
+| `speaker_tone_played` | 멜로디 재생 완료. `details.melody`로 재생된 멜로디 확인 |
 
 테스트 절차:
 
 1. Arduino IDE에서 `snow-status-card.ino`를 업로드합니다.
 2. Serial Monitor `115200`에서 `firmware_version`의 `features`에 `speaker`가 있는지 확인합니다.
-3. 부팅 시퀀스 중 `speaker_init_start`(완료 메시지)와 `speaker_tone_played`가 에러 없이 출력되는지 확인합니다.
-4. 보드 스피커에서 실제로 ON 차임(C6→E6)이 들리는지 청취로 확인합니다.
+3. `display_refresh_done` 직후 `speaker_tone_played`가 에러 없이 출력되는지 확인합니다.
+4. e-paper 카드가 표시되는 시점에 맞춰 보드 스피커에서 부팅 멜로디가 들리는지 청취로 확인합니다.
 
 실제 Snow 확인값:
 
 | 항목 | 값 |
 | --- | --- |
 | 코덱 초기화 | 성공 (`speaker_init_failed` 없음) |
-| 재생된 음 | `C6,E6` (ON). `E6,C6`(OFF)은 함수만 준비, 아직 트리거 없음 |
+| 재생된 멜로디 | `snow_boot` |
+| 재생 시점 | `display_refresh_done` 직후 |
 | 실기기 청취 | 확인함 |
 
 ---
