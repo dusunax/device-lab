@@ -8,6 +8,7 @@
 // Pure helpers with no dependency on the sketch's global state.
 void drawCentered(const char* text, int y, sFONT* font, UWORD fg, UWORD bg);
 void drawEyesOpen();
+void drawAudioIcons();
 void appendAddress(char* buffer, size_t bufferSize, const char* addressText, bool needsSeparator);
 void scanI2CBus();
 bool recoverI2CBus(int sdaPin, int sclPin);

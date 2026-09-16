@@ -20,6 +20,19 @@ void drawEyesOpen() {
   Paint_DrawLine(88, 188, 112, 188, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
 }
 
+void drawAudioIcons() {
+  Paint_DrawCircle(153, 178, 10, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+  Paint_DrawCircle(153, 174, 3, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+  Paint_DrawLine(153, 177, 153, 181, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+  Paint_DrawLine(150, 181, 156, 181, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+
+  Paint_DrawCircle(177, 178, 10, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, DRAW_FILL_EMPTY);
+  Paint_DrawRectangle(173, 175, 176, 181, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+  Paint_DrawLine(176, 175, 180, 173, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+  Paint_DrawLine(176, 181, 180, 183, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+  Paint_DrawLine(182, 175, 183, 173, EPD_1IN54G_BLACK, DOT_PIXEL_1X1, LINE_STYLE_SOLID);
+}
+
 void appendAddress(char* buffer, size_t bufferSize, const char* addressText, bool needsSeparator) {
   size_t used = strlen(buffer);
   if (needsSeparator && used + 1 < bufferSize) {

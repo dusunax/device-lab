@@ -10,6 +10,7 @@
 #include "src/snow_display.h"
 #include "src/snow_battery.h"
 #include "src/snow_speaker.h"
+#include "src/snow_mic_recorder.h"
 #include "src/waveshare_epaper_1in54g/EPD_1in54g.h"
 #include "src/waveshare_epaper_1in54g/GUI_Paint.h"
 #include "src/waveshare_epaper_1in54g/fonts.h"
@@ -22,7 +23,7 @@
 #error "Snow needs Tools > USB CDC On Boot > Enabled to show Serial Monitor logs. Enable it, then compile/upload again."
 #endif
 
-#define SNOW_FIRMWARE_VERSION "0.0.6"
+#define SNOW_FIRMWARE_VERSION "0.0.7"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
 #define SNOW_BATTERY_DIVIDER_RATIO 2.0f
@@ -295,6 +296,7 @@ void drawBaseCard() {
 void showOpenFace() {
   drawBaseCard();
   drawEyesOpen();
+  drawAudioIcons();
   EPD_1IN54G_Display(image);
 }
 
@@ -303,7 +305,7 @@ void setup() {
   delay(2000);  // Give Arduino IDE Serial Monitor time to attach after USB reset.
   telemetryLog(TELEMETRY_INFO, SYSTEM_START, "Snow status-card firmware started", "{\"baudrate\":115200}");
   char versionDetails[192];
-  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security,speaker\"}", SNOW_FIRMWARE_VERSION);
+  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security,speaker,microphone\"}", SNOW_FIRMWARE_VERSION);
   telemetryLog(TELEMETRY_INFO, FIRMWARE_VERSION, "Snow firmware version", versionDetails);
 
   recoverI2CBus(SNOW_I2C_SDA_PIN, SNOW_I2C_SCL_PIN);
@@ -341,6 +343,9 @@ void setup() {
   wifiOk = connectWiFi(WIFI_SSID, WIFI_PASSWORD);
   if (wifiOk) {
     updateTodayDate();
+    if (initMicRecorder()) {
+      recordMicClip();
+    }
   }
 
   // Draw once only. e-Paper refresh is slow, so avoid repeated updates.
@@ -363,6 +368,15 @@ void loop() {
   char details[48];
   snprintf(details, sizeof(details), "{\"sequence\":%lu}", n++);
   telemetryLog(TELEMETRY_INFO, SYSTEM_HEARTBEAT, "Main loop heartbeat", details);
+
+  handleMicServer();
+
+  int micLevel = readMicLevel();
+  if (micLevel >= 0) {
+    char micDetails[32];
+    snprintf(micDetails, sizeof(micDetails), "{\"peak\":%d}", micLevel);
+    telemetryLog(TELEMETRY_INFO, MIC_LEVEL_READ, "Mic level read", micDetails);
+  }
 
   unsigned long now = millis();
   if (lastBatteryReadMs == 0 || now - lastBatteryReadMs >= 30000UL) {
