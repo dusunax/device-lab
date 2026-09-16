@@ -62,6 +62,10 @@ Snow firmware의 Serial Monitor 로그를 사람이 읽는 임시 문자열이 �
 | `speaker_init_start` | `info` | ES8311 코덱/I2S 초기화 시작 및 완료(겸용, `message`로 구분) |
 | `speaker_init_failed` | `warning` | ES8311 코덱 또는 I2S 초기화 실패 |
 | `speaker_tone_played` | `info` | 합성 비프음 재생 완료 |
+| `mic_level_read` | `info` | 마이크 peak 레벨 측정 (loop에서 5초 주기) |
+| `mic_recorder_started` | `info` | 마이크 녹음용 로컬 웹서버 시작 완료 |
+| `mic_recorder_failed` | `warning` | 녹음 버퍼 할당 또는 mDNS 시작 실패. 실패해도 웹서버 자체는 계속 시작 시도 |
+| `mic_clip_recorded` | `info` | 자동 녹음 완료. `details.samples`로 샘플 수 확인 |
 | `bluetooth_init_start` | `info` | BLE advertising 초기화 시작 |
 | `bluetooth_advertising_started` | `info` | BLE peripheral advertising 시작 또는 재시작 |
 | `bluetooth_client_connected` | `info` | BLE client 연결 확인 |
@@ -196,6 +200,49 @@ ES8311 오디오 코덱(I2C 제어 + I2S 출력)과 NS4150B 앰프를 통해 스
 | 재생된 멜로디 | `snow_boot` |
 | 재생 시점 | `display_refresh_done` 직후 |
 | 실기기 청취 | 확인함 |
+
+---
+
+## Microphone 확인 기준
+
+Speaker와 동일한 ES8311 코덱의 analog mic 입력을 사용합니다. I2S는 DOUT/DIN 핀을 모두 설정하면
+자동으로 풀 듀플렉스(TX+RX)로 동작해 별도 버스 초기화가 필요 없습니다. 녹음 파일은 WiFi 연결
+직후 30초 자동으로 녹음되며, 로컬 웹서버로 wav 파일을 내려받아 실제 청취로 확인합니다.
+
+펌웨어 기준:
+
+| 항목 | 값 |
+| --- | --- |
+| firmware version | `0.0.7` |
+| feature marker | `microphone` |
+| 코덱 | ES8311 (Speaker와 동일 핸들 공유) |
+| 마이크 게인 | `ES8311_MIC_GAIN_24DB` |
+| 녹음 경로 | `http://<Snow IP>/mic.wav` (mDNS 우선 `snow.local`, 환경에 따라 실패 가능) |
+
+확인 이벤트:
+
+| 이벤트 | 판정 기준 |
+| --- | --- |
+| `mic_level_read` | `details.peak` 값이 조용할 때보다 소리를 낼 때 명확히 올라가는지 확인 |
+| `mic_recorder_started` | 로컬 웹서버 시작 확인 |
+| `mic_clip_recorded` | `details.samples`가 기대한 녹음 길이(초당 24000)와 일치하는지 확인 |
+
+테스트 절차:
+
+1. Arduino IDE에서 `snow-status-card.ino`를 업로드합니다.
+2. Serial Monitor `115200`에서 `firmware_version`의 `features`에 `microphone`이 있는지 확인합니다.
+3. WiFi 연결 직후 `mic_recorder_started`, 이후 `mic_clip_recorded`가 출력되는지 확인합니다.
+4. 같은 WiFi에 연결된 브라우저로 `http://snow.local/mic.wav` 또는 Snow의 실제 IP로 접속해 wav 파일을 재생합니다.
+5. 녹음 구간에 낸 소리가 실제로 들리는지 확인합니다.
+
+실제 Snow 확인값:
+
+| 항목 | 값 |
+| --- | --- |
+| 코덱 초기화 | 성공 (Speaker와 공유, `speaker_init_failed` 없음) |
+| `mic_level_read` peak | 평상시 80~260, 소리 낼 때 450~1200대로 상승 |
+| 녹음 길이 | 720000 samples (30초) |
+| 실기기 청취 | 확인함 (mDNS는 환경에 따라 실패, IP 직접 접속으로 확인) |
 
 ---
 

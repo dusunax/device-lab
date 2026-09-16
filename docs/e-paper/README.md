@@ -41,6 +41,7 @@ e-paper/ESP32S3/snow-status-card/
   src/snow_speaker.*          # ES8311 코덱 초기화, 합성 멜로디 재생
   src/snow_melody.*           # 멜로디 데이터 (음 목록/길이/간격)
   src/snow_pitches.h          # 표준 음이름(NOTE_C4 등) 매핑 유틸
+  src/snow_mic_recorder.*     # 마이크 레벨/녹음, WiFi 로컬 웹서버(wav 다운로드)
   src/waveshare_epaper_1in54g -> vendor/waveshare_epaper_1in54g
   src/es8311 -> vendor/es8311
 
@@ -95,6 +96,19 @@ ES8311 오디오 코덱(I2C 제어 + I2S 출력) + NS4150B 앰프를 통해 스�
 | 확인 이벤트 | `speaker_init_start`(시작/완료 겸용), `speaker_init_failed`, `speaker_tone_played` |
 | 범위 | e-paper 카드가 표시된 직후(`showOpenFace()` 이후) 부팅 멜로디 1회 재생. 실기기에서 청취로 확인 |
 | 멜로디 데이터 | `src/snow_melody.h/.cpp`(음 목록), `src/snow_pitches.h`(표준 음이름 매핑 유틸) |
+
+## Microphone 테스트 기준
+
+Speaker와 동일한 ES8311 코덱의 analog mic 입력을 사용합니다. I2S는 DOUT/DIN 핀을 모두 설정하면
+자동으로 풀 듀플렉스(TX+RX)로 동작하므로 별도 I2S 버스 초기화가 필요 없습니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 코덱 | ES8311 (Speaker와 동일 핸들 공유) |
+| 마이크 게인 | `ES8311_MIC_GAIN_24DB` |
+| 확인 이벤트 | `mic_level_read`(5초 주기 peak 레벨), `mic_recorder_started`, `mic_clip_recorded` |
+| 청취 확인 | WiFi 연결 직후 30초 자동 녹음 → 로컬 웹서버(`http://<Snow IP>/mic.wav`)에서 다운로드해 재생 |
+| 비고 | IP는 화면/로그에 남기지 않는 기존 원칙에 따라 `mDNS`(`snow.local`)를 우선 안내. 환경에 따라 mDNS 해석이 안 될 수 있어, 필요 시 라우터에서 IP를 직접 확인 |
 
 ## 배터리 측정 기준
 
