@@ -13,12 +13,13 @@
 #define SNOW_SPEAKER_I2S_DIN_PIN 16
 #define SNOW_SPEAKER_PA_CTRL_PIN 46
 #define SNOW_SPEAKER_PA_EN_PIN 42
-#define SNOW_SPEAKER_SAMPLE_RATE 24000
+#define SNOW_SPEAKER_SAMPLE_RATE SNOW_AUDIO_SAMPLE_RATE
 #define SNOW_SPEAKER_MCLK_MULTIPLE 256
 #define SNOW_SPEAKER_VOLUME 75
 
 static I2SClass i2s;
 static bool speakerReady = false;
+static es8311_handle_t codec = NULL;
 
 bool initSpeaker() {
   telemetryLog(TELEMETRY_INFO, SPEAKER_INIT_START, "Speaker init started", "{\"codec\":\"ES8311\"}");
@@ -28,7 +29,7 @@ bool initSpeaker() {
   digitalWrite(SNOW_SPEAKER_PA_EN_PIN, LOW);
   digitalWrite(SNOW_SPEAKER_PA_CTRL_PIN, HIGH);
 
-  es8311_handle_t codec = es8311_create(I2C_NUM_0, ES8311_ADDRESS_0);
+  codec = es8311_create(I2C_NUM_0, ES8311_ADDRESS_0);
   if (codec == NULL) {
     telemetryLog(TELEMETRY_WARNING, SPEAKER_INIT_FAILED, "ES8311 codec create failed");
     return false;
@@ -46,6 +47,8 @@ bool initSpeaker() {
     return false;
   }
   es8311_voice_volume_set(codec, SNOW_SPEAKER_VOLUME, NULL);
+  es8311_microphone_config(codec, false);
+  es8311_microphone_gain_set(codec, ES8311_MIC_GAIN_24DB);
 
   i2s.setPins(SNOW_SPEAKER_I2S_BCLK_PIN, SNOW_SPEAKER_I2S_LRCK_PIN, SNOW_SPEAKER_I2S_DOUT_PIN, SNOW_SPEAKER_I2S_DIN_PIN, SNOW_SPEAKER_I2S_MCLK_PIN);
   if (!i2s.begin(I2S_MODE_STD, SNOW_SPEAKER_SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO, I2S_STD_SLOT_LEFT)) {
@@ -102,4 +105,32 @@ void playBootChime() {
   }
   playMelody(SNOW_BOOT_MELODY, SNOW_BOOT_MELODY_LENGTH);
   telemetryLog(TELEMETRY_INFO, SPEAKER_TONE_PLAYED, "Speaker boot chime played", "{\"melody\":\"snow_boot\"}");
+}
+
+int readMicLevel() {
+  if (!speakerReady) {
+    return -1;
+  }
+
+  const int sampleCount = 256;
+  int16_t buffer[sampleCount];
+  size_t bytesRead = i2s.readBytes((char*)buffer, sizeof(buffer));
+  int samplesRead = bytesRead / sizeof(int16_t);
+
+  int peak = 0;
+  for (int i = 0; i < samplesRead; i++) {
+    int magnitude = buffer[i] < 0 ? -buffer[i] : buffer[i];
+    if (magnitude > peak) {
+      peak = magnitude;
+    }
+  }
+  return peak;
+}
+
+size_t recordMicAudio(int16_t* buffer, size_t maxSamples) {
+  if (!speakerReady) {
+    return 0;
+  }
+  size_t bytesRead = i2s.readBytes((char*)buffer, maxSamples * sizeof(int16_t));
+  return bytesRead / sizeof(int16_t);
 }
