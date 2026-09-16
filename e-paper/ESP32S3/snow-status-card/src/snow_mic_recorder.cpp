@@ -38,6 +38,15 @@ static void buildWavHeader(uint8_t* header, size_t dataSize) {
   memcpy(header + 40, &dataSize32, 4);
 }
 
+static void handleIndex() {
+  const char* page =
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Snow Mic</title></head>"
+    "<body><h3>Snow Mic Recording</h3>"
+    "<audio controls src=\"/mic.wav\"></audio>"
+    "</body></html>";
+  server.send(200, "text/html", page);
+}
+
 static void handleMicWav() {
   if (audioBuffer == NULL || recordedSamples == 0) {
     server.send(404, "text/plain", "no recording yet");
@@ -65,6 +74,7 @@ bool initMicRecorder() {
     telemetryLog(TELEMETRY_WARNING, MIC_RECORDER_FAILED, "mDNS responder start failed");
   }
 
+  server.on("/", handleIndex);
   server.on("/mic.wav", handleMicWav);
   server.begin();
   serverReady = true;
