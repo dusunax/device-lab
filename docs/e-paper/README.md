@@ -43,6 +43,7 @@ e-paper/ESP32S3/snow-status-card/
   src/snow_pitches.h          # 표준 음이름(NOTE_C4 등) 매핑 유틸
   src/snow_mic_recorder.*     # 마이크 레벨/녹음, WiFi 로컬 웹서버(wav 다운로드)
   src/snow_climate.*          # SHTC3 온습도 읽기(Wire 직접 구현, CRC8 검증)
+  src/snow_rtc.*               # PCF85063 RTC 읽기/쓰기(Wire 직접 구현, BCD 레지스터)
   src/waveshare_epaper_1in54g -> vendor/waveshare_epaper_1in54g
   src/es8311 -> vendor/es8311
 
@@ -114,8 +115,7 @@ Speaker와 동일한 ES8311 코덱의 analog mic 입력을 사용합니다. I2S�
 ## Climate(온습도) 테스트 기준
 
 SHTC3 센서(I2C `0x70`)를 Wire 기반으로 직접 구현했습니다(16비트 커맨드 전송 → 6바이트 응답,
-CRC8 검증). 부팅 시 e-paper 전원이 켜진 뒤에야 안정적으로 응답하는 것이 확인되어, 첫 읽기는
-디스플레이 모듈 초기화 이후에 수행합니다.
+CRC8 검증).
 
 | 항목 | 값 |
 | --- | --- |
@@ -123,7 +123,19 @@ CRC8 검증). 부팅 시 e-paper 전원이 켜진 뒤에야 안정적으로 응�
 | 측정 주기 | 30초 (loop 기준) |
 | 확인 이벤트 | `climate_read`, `climate_read_failed` |
 | 화면 표시 | 날짜 바로 아래 줄에 "OO.OC OO%" 형식으로 표시 |
-| 비고 | 부팅 직후(디스플레이 전원 초기화 전) 읽으면 3회 재시도에도 계속 실패함 — 읽기 시점을 `DEV_Module_Init()` 이후로 옮겨서 해결 (troubleshooting 참고) |
+| 비고 | RTC/SHTC3/ES8311은 `SNOW_PERIPHERAL_PWR_PIN`(GPIO42) 전원 레일을 공유함. `Wire.begin()` 전에 이 핀을 켜야 부팅 직후부터 안정적으로 응답함 (troubleshooting #17 참고) |
+
+## RTC 테스트 기준
+
+PCF85063 RTC(I2C `0x51`)를 Wire 기반으로 직접 구현했습니다(BCD 레지스터 0x04~0x0A 직접
+읽기/쓰기). 부팅 시 1회 읽고, NTP 동기화에 성공하면 그 시각으로 RTC를 맞춥니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 센서 | PCF85063 (I2C 주소 `0x51`) |
+| 확인 이벤트 | `rtc_read`, `rtc_read_failed`, `rtc_write`, `rtc_write_failed` |
+| 시간 설정 | NTP 동기화 성공 직후 `writeRtcTime()`으로 RTC에 반영, 곧바로 재읽기로 확인 |
+| 비고 | Climate와 동일하게 `SNOW_PERIPHERAL_PWR_PIN` 전원 레일 공유. `oscillator_stopped` 플래그로 RTC 배터리/전원 유지 여부 확인 가능(다음 "RTC 유지" 항목에서 활용) |
 
 ## 배터리 측정 기준
 
