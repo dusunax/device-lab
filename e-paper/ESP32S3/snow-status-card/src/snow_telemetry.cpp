@@ -67,6 +67,14 @@ static const char* eventToString(TelemetryEvent event) {
       return "climate_read";
     case CLIMATE_READ_FAILED:
       return "climate_read_failed";
+    case RTC_READ:
+      return "rtc_read";
+    case RTC_READ_FAILED:
+      return "rtc_read_failed";
+    case RTC_WRITE:
+      return "rtc_write";
+    case RTC_WRITE_FAILED:
+      return "rtc_write_failed";
     case BLUETOOTH_INIT_START:
       return "bluetooth_init_start";
     case BLUETOOTH_ADVERTISING_STARTED:
