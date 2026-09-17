@@ -63,6 +63,10 @@ static const char* eventToString(TelemetryEvent event) {
       return "mic_recorder_failed";
     case MIC_CLIP_RECORDED:
       return "mic_clip_recorded";
+    case CLIMATE_READ:
+      return "climate_read";
+    case CLIMATE_READ_FAILED:
+      return "climate_read_failed";
     case BLUETOOTH_INIT_START:
       return "bluetooth_init_start";
     case BLUETOOTH_ADVERTISING_STARTED:
