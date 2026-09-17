@@ -4,7 +4,7 @@
 #include "snow_speaker.h"
 #include "snow_telemetry.h"
 
-#define SNOW_MIC_RECORD_SECONDS 30
+#define SNOW_MIC_RECORD_SECONDS 3
 #define SNOW_MIC_SAMPLE_COUNT (SNOW_AUDIO_SAMPLE_RATE * SNOW_MIC_RECORD_SECONDS)
 
 static WebServer server(80);
