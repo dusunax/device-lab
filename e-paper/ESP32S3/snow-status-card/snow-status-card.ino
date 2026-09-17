@@ -11,6 +11,7 @@
 #include "src/snow_battery.h"
 #include "src/snow_speaker.h"
 #include "src/snow_mic_recorder.h"
+#include "src/snow_climate.h"
 #include "src/waveshare_epaper_1in54g/EPD_1in54g.h"
 #include "src/waveshare_epaper_1in54g/GUI_Paint.h"
 #include "src/waveshare_epaper_1in54g/fonts.h"
@@ -23,7 +24,7 @@
 #error "Snow needs Tools > USB CDC On Boot > Enabled to show Serial Monitor logs. Enable it, then compile/upload again."
 #endif
 
-#define SNOW_FIRMWARE_VERSION "0.0.7"
+#define SNOW_FIRMWARE_VERSION "0.0.8"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
 #define SNOW_BATTERY_DIVIDER_RATIO 2.0f
@@ -49,6 +50,7 @@ bool bleOk = false;
 bool bleConnected = false;
 int lastBatteryVoltageMv = 0;
 char dateLine[16] = SNOW_DATE_UNKNOWN;
+char climateLine[16] = "";
 // Non-empty while a passkey is displayed for pairing; shown instead of "SNOW READY".
 char pairingPasskeyLine[8] = "";
 
@@ -220,6 +222,14 @@ void logBatteryVoltage() {
   }
 }
 
+void logClimate() {
+  ClimateReading reading = readClimate();
+  if (!reading.readOk) {
+    return;
+  }
+  snprintf(climateLine, sizeof(climateLine), "%.1fC %.0f%%", reading.temperatureC, reading.humidityPercent);
+}
+
 bool updateTodayDate() {
   telemetryLog(TELEMETRY_INFO, TIME_SYNC_START, "NTP time sync started", "{\"timezone\":\"KST\",\"retry_limit\":20,\"retry_delay_ms\":500}");
 
@@ -255,13 +265,17 @@ bool updateTodayDate() {
 void drawBaseCard() {
   Paint_Clear(EPD_1IN54G_WHITE);
   Paint_DrawRectangle(2, 2, 197, 197, EPD_1IN54G_BLACK, DOT_PIXEL_2X2, DRAW_FILL_EMPTY);
-  Paint_DrawRectangle(8, 8, 191, 42, EPD_1IN54G_YELLOW, DOT_PIXEL_1X1, DRAW_FILL_FULL);
+  Paint_DrawRectangle(8, 8, 191, 34, EPD_1IN54G_YELLOW, DOT_PIXEL_1X1, DRAW_FILL_FULL);
 
-  drawCentered("HELLO SUN-A", 14, &Font24, EPD_1IN54G_BLACK, EPD_1IN54G_YELLOW);
-  drawCentered(dateLine, 56, &Font20, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+  drawCentered("HELLO SUN-A", 11, &Font20, EPD_1IN54G_BLACK, EPD_1IN54G_YELLOW);
+  drawCentered(dateLine, 40, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
 
-  // Status rows below the date share one font/size/margin so the list reads
-  // as one consistent block even as more rows are added.
+  if (climateLine[0] != '\0') {
+    drawCentered(climateLine, 60, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+  }
+
+  // Status rows share one font/size/margin so the list reads as one
+  // consistent block even as more rows are added.
   if (wifiOk) {
     drawCentered("WIFI OK", 80, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
   } else {
@@ -269,17 +283,17 @@ void drawBaseCard() {
   }
 
   if (batteryOk) {
-    drawCentered("BATTERY OK", 104, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+    drawCentered("BATTERY OK", 100, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
   } else {
-    drawCentered("BATTERY CHECK", 104, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+    drawCentered("BATTERY CHECK", 100, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
   }
 
   if (bleConnected) {
-    drawCentered("BLE CONNECTED", 128, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+    drawCentered("BLE CONNECTED", 120, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
   } else if (bleOk) {
-    drawCentered("BLE ADVERTISING", 128, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
+    drawCentered("BLE ADVERTISING", 120, &Font16, EPD_1IN54G_BLACK, EPD_1IN54G_WHITE);
   } else {
-    drawCentered("BLE FAIL", 128, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+    drawCentered("BLE FAIL", 120, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
   }
 
   // Pairing passkey takes over this line temporarily; "SNOW READY" resumes
@@ -287,9 +301,9 @@ void drawBaseCard() {
   if (pairingPasskeyLine[0] != '\0') {
     char pinLine[16];
     snprintf(pinLine, sizeof(pinLine), "PIN %s", pairingPasskeyLine);
-    drawCentered(pinLine, 152, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+    drawCentered(pinLine, 140, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
   } else {
-    drawCentered("SNOW READY", 152, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
+    drawCentered("SNOW READY", 140, &Font16, EPD_1IN54G_RED, EPD_1IN54G_WHITE);
   }
 }
 
@@ -305,7 +319,7 @@ void setup() {
   delay(2000);  // Give Arduino IDE Serial Monitor time to attach after USB reset.
   telemetryLog(TELEMETRY_INFO, SYSTEM_START, "Snow status-card firmware started", "{\"baudrate\":115200}");
   char versionDetails[192];
-  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security,speaker,microphone\"}", SNOW_FIRMWARE_VERSION);
+  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security,speaker,microphone,climate\"}", SNOW_FIRMWARE_VERSION);
   telemetryLog(TELEMETRY_INFO, FIRMWARE_VERSION, "Snow firmware version", versionDetails);
 
   recoverI2CBus(SNOW_I2C_SDA_PIN, SNOW_I2C_SCL_PIN);
@@ -326,6 +340,10 @@ void setup() {
   EPD_1IN54G_Init();
   EPD_1IN54G_Clear(EPD_1IN54G_WHITE);
   DEV_Delay_ms(500);
+
+  // Called here, not earlier: SHTC3 isn't reliably responsive until after
+  // display module init powers up the board's peripheral rail.
+  logClimate();
 
   imageSize = ((EPD_1IN54G_WIDTH % 4 == 0) ? (EPD_1IN54G_WIDTH / 4) : (EPD_1IN54G_WIDTH / 4 + 1)) * EPD_1IN54G_HEIGHT;
   image = (UBYTE *)malloc(imageSize);
@@ -364,6 +382,7 @@ void loop() {
   static unsigned long n = 0;
   static unsigned long lastBatteryReadMs = 0;
   static unsigned long lastI2CScanMs = 0;
+  static unsigned long lastClimateReadMs = 0;
 
   char details[48];
   snprintf(details, sizeof(details), "{\"sequence\":%lu}", n++);
@@ -382,6 +401,11 @@ void loop() {
   if (lastBatteryReadMs == 0 || now - lastBatteryReadMs >= 30000UL) {
     lastBatteryReadMs = now;
     logBatteryVoltage();
+  }
+
+  if (lastClimateReadMs == 0 || now - lastClimateReadMs >= 30000UL) {
+    lastClimateReadMs = now;
+    logClimate();
   }
 
   if (lastI2CScanMs == 0 || now - lastI2CScanMs >= 60000UL) {

@@ -25,8 +25,8 @@
 | 📡 BLE 통신 | 폰 ↔ Snow 데이터 송수신 | status(읽기)/command(쓰기) characteristic 추가. 패스키 페어링 적용(display-only IO, bonding+MITM+secure connections). 폰에서 `battery 4148mV 100%` 읽기, `hello` 쓰기 후 `bluetooth_data_received` 로그 확인 | ✅ |
 | 🔊 Speaker | 비프음/멜로디 출력 | ES8311 코덱(I2C+I2S) 드라이버 벤더링. e-paper 카드 표시 직후 부팅 멜로디 재생, 실기기에서 청취 확인 | ✅ |
 | 🎙️ Microphone | 마이크 입력 감지 | ES8311 코덱 analog mic 활성화, I2S RX로 레벨 측정. WiFi 로컬 웹서버(`/mic.wav`)로 30초 녹음 다운로드해 실제 청취로 확인. 화면에 마이크/스피커 아이콘 표시 | ✅ |
-| 🌡️ 온도 | SHTC3 온도 읽기 | - | ⬜ |
-| 💧 습도 | SHTC3 습도 읽기 | - | ⬜ |
+| 🌡️ 온도 | SHTC3 온도 읽기 | I2C(0x70) 커맨드 기반 직접 구현(Wire). CRC8 검증, 재시도 로직 포함. 30초 주기로 읽어 화면 날짜 아래에 표시 | ✅ |
+| 💧 습도 | SHTC3 습도 읽기 | 온도와 동일 트랜잭션에서 함께 읽음. 화면에 "OO.OC OO%" 형식으로 함께 표시 | ✅ |
 | 🕐 RTC | 현재 시간 읽기 | - | ⬜ |
 | 🕐 RTC 유지 | 재부팅 후에도 시간 유지 | - | ⬜ |
 | 🌐 HTTP | 외부 API 요청 | - | ⬜ |
