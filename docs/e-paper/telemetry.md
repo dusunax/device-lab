@@ -68,6 +68,10 @@ Snow firmware의 Serial Monitor 로그를 사람이 읽는 임시 문자열이 �
 | `mic_clip_recorded` | `info` | 자동 녹음 완료. `details.samples`로 샘플 수 확인 |
 | `climate_read` | `info` | SHTC3 온습도 읽기 성공. `details.temperature_c`/`details.humidity_percent` |
 | `climate_read_failed` | `warning` | wakeup/measure/read/CRC 중 한 단계 실패 (3회 재시도 후에도 실패 시) |
+| `rtc_read` | `info` | PCF85063 읽기 성공. `details.datetime`/`details.oscillator_stopped` |
+| `rtc_read_failed` | `warning` | 레지스터 쓰기 또는 읽기 실패 |
+| `rtc_write` | `info` | NTP 동기화 성공 직후 RTC에 시각 반영 완료 |
+| `rtc_write_failed` | `warning` | RTC 시각 쓰기 실패 |
 | `bluetooth_init_start` | `info` | BLE advertising 초기화 시작 |
 | `bluetooth_advertising_started` | `info` | BLE peripheral advertising 시작 또는 재시작 |
 | `bluetooth_client_connected` | `info` | BLE client 연결 확인 |
@@ -251,15 +255,15 @@ Speaker와 동일한 ES8311 코덱의 analog mic 입력을 사용합니다. I2S�
 ## Climate(온습도) 확인 기준
 
 SHTC3 센서를 Wire로 직접 제어합니다(16비트 커맨드 → wakeup/measure, 6바이트 응답 → CRC8 검증 →
-온도/습도 계산). 부팅 직후 e-paper 디스플레이 모듈이 전원을 올리기 전에는 이 센서가 응답하지
-않는 것이 확인되어, 첫 읽기는 `DEV_Module_Init()` 이후로 미뤘다(자세한 내용은
-troubleshooting.md 참고).
+온도/습도 계산). RTC/SHTC3/ES8311은 `SNOW_PERIPHERAL_PWR_PIN`(GPIO42) 전원 레일을 공유하며,
+`Wire.begin()` 전에 이 핀을 켜면 부팅 직후부터 바로 안정적으로 응답한다(troubleshooting.md
+#17 참고 — 이전에는 디스플레이 초기화 이후로 읽기 시점을 미루는 우회책을 썼었다).
 
 펌웨어 기준:
 
 | 항목 | 값 |
 | --- | --- |
-| firmware version | `0.0.8` |
+| firmware version | `0.0.9` |
 | feature marker | `climate` |
 | 센서 | SHTC3 (I2C 주소 `0x70`) |
 | 측정 주기 | 30초 (loop 기준) |
@@ -285,6 +289,45 @@ troubleshooting.md 참고).
 | 온도 | 약 26~32°C (실내 환경 기준, 센서 자체 발열 보정 -4°C 적용) |
 | 습도 | 약 33~38% |
 | 화면 표시 | 확인함 |
+
+---
+
+## RTC 확인 기준
+
+PCF85063을 Wire로 직접 제어합니다(레지스터 0x04~0x0A, BCD 인코딩). 부팅 시 1회 읽고, NTP
+동기화에 성공하면 그 시각으로 RTC를 맞춘 뒤 다시 읽어 반영을 확인합니다. Climate와 동일하게
+`SNOW_PERIPHERAL_PWR_PIN` 전원 레일을 공유합니다(troubleshooting.md #17 참고).
+
+펌웨어 기준:
+
+| 항목 | 값 |
+| --- | --- |
+| firmware version | `0.0.9` |
+| feature marker | `rtc` |
+| 센서 | PCF85063 (I2C 주소 `0x51`) |
+
+확인 이벤트:
+
+| 이벤트 | 판정 기준 |
+| --- | --- |
+| `rtc_read` | `details.datetime`이 합리적인 값인지, `oscillator_stopped`가 `false`인지 확인 |
+| `rtc_write` | NTP 동기화 직후 발생. 바로 이어지는 `rtc_read`의 시각이 NTP와 일치하는지 확인 |
+
+테스트 절차:
+
+1. Arduino IDE에서 `snow-status-card.ino`를 업로드합니다.
+2. Serial Monitor `115200`에서 `firmware_version`의 `features`에 `rtc`가 있는지 확인합니다.
+3. 부팅 직후(WiFi 연결 전) `rtc_read`가 에러 없이 출력되는지 확인합니다.
+4. NTP 동기화 성공 직후 `rtc_write` → `rtc_read` 순서로 찍히고, 두 번째 `rtc_read`의 시각이
+   NTP로 동기화된 날짜/시간과 일치하는지 확인합니다.
+
+실제 Snow 확인값:
+
+| 항목 | 값 |
+| --- | --- |
+| 부팅 직후 읽기 | 성공 (`rtc_read_failed` 없음) |
+| NTP 동기화 후 시각 반영 | 확인함 (`rtc_write` 직후 `rtc_read`가 동일 시각 반환) |
+| `oscillator_stopped` | `false` |
 
 ---
 

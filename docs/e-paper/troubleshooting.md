@@ -267,3 +267,30 @@ Serial/화면에 상시 노출하지 않으므로, 필요할 때만 일회성으
 색 평면에 걸친 문제라, 이번 PR 범위에서는 제외하고 코드는 원래 매크로(`EPD_1IN54G_BLACK`/
 `EPD_1IN54G_WHITE`) 그대로 되돌렸다. 실제 사용에는 큰 지장이 없어(글자는 읽힘) 우선순위를
 낮춰 별도로 조사하기로 함.
+
+## 17. 부팅 직후 SHTC3/RTC가 응답하지 않다가 나중에는 정상 동작할 때 (근본 원인 확인)
+
+증상: `scanI2CBus()`를 부팅 직후 호출하면 가끔 주소를 하나도 못 찾거나(`found_count:0`)
+엉뚱한 주소만 찾고, SHTC3/RTC 읽기도 부팅 초반에는 계속 실패하는데, `loop()`의 주기적 스캔/읽기는
+항상 정상이었다. 온습도 PR에서는 "디스플레이 모듈 초기화 이후로 읽기 시점을 옮기는" 우회책으로
+대응했다.
+
+근본 원인: Waveshare 공식 예제(`Example/Arduino_3.2.0/examples/02_I2C_PCF85063`)의
+`board_power_bsp`/`user_config.h`를 확인한 결과, 이 보드는 `EPD_PWR_PIN`(GPIO6),
+`Audio_PWR_PIN`(GPIO42), `VBAT_PWR_PIN`(GPIO17) 3개의 전원 레일 스위치 핀을 갖고 있고,
+공식 예제는 `setup()` 맨 처음에 `POWEER_EPD_ON()`/`POWEER_Audio_ON()`을 호출해 이 핀들을
+active-low로 켠 뒤에야 I2C 통신을 시작한다. `Audio_PWR_PIN`(GPIO42)은 이름과 달리 오디오뿐
+아니라 RTC(PCF85063)/SHTC3/ES8311이 공유하는 전원 레일이었다. 우리 firmware는 이 핀을 스피커
+쪽 `PA_EN`으로만 인식해 `initSpeaker()` 안에서 뒤늦게 켰기 때문에, 그보다 먼저 실행되는 I2C
+스캔/RTC/SHTC3 읽기가 전원이 안 들어온 상태에서 시도되어 실패했던 것이었다. 디스플레이 초기화
+이후로 읽기 시점을 옮기는 우회책이 통했던 건, 우연히 그 시점이면 이미 무언가가 이 레일을 켜놓은
+상태였기 때문으로 보인다.
+
+해결: `setup()` 맨 앞, `Wire.begin()`보다도 먼저 `pinMode(42, OUTPUT); digitalWrite(42, LOW);`로
+전원 레일을 켠다. 이후 첫 `scanI2CBus()`부터 매번 `found_count:3`으로 정상 확인됐고, SHTC3/RTC도
+부팅 3초 이내에 안정적으로 읽혔다. 이 핀은 `snow_speaker.cpp`의 `SNOW_SPEAKER_PA_EN_PIN`과 동일
+핀이라 `initSpeaker()`에서도 여전히 켜지만(중복이지만 무해함), 실제로 필요한 건 그보다 훨씬 이른
+시점이었다.
+
+확인 방법: 부팅 직후 첫 `i2c_scan_done`의 `found_count`가 매번 3이면 정상. 0이거나 들쭉날쭉하면
+이 전원 레일이 I2C 스캔보다 늦게 켜지고 있지 않은지 코드 순서를 확인한다.
