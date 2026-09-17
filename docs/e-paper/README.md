@@ -42,6 +42,7 @@ e-paper/ESP32S3/snow-status-card/
   src/snow_melody.*           # 멜로디 데이터 (음 목록/길이/간격)
   src/snow_pitches.h          # 표준 음이름(NOTE_C4 등) 매핑 유틸
   src/snow_mic_recorder.*     # 마이크 레벨/녹음, WiFi 로컬 웹서버(wav 다운로드)
+  src/snow_climate.*          # SHTC3 온습도 읽기(Wire 직접 구현, CRC8 검증)
   src/waveshare_epaper_1in54g -> vendor/waveshare_epaper_1in54g
   src/es8311 -> vendor/es8311
 
@@ -107,8 +108,22 @@ Speaker와 동일한 ES8311 코덱의 analog mic 입력을 사용합니다. I2S�
 | 코덱 | ES8311 (Speaker와 동일 핸들 공유) |
 | 마이크 게인 | `ES8311_MIC_GAIN_24DB` |
 | 확인 이벤트 | `mic_level_read`(5초 주기 peak 레벨), `mic_recorder_started`, `mic_clip_recorded` |
-| 청취 확인 | WiFi 연결 직후 30초 자동 녹음 → 로컬 웹서버(`http://<Snow IP>/mic.wav`)에서 다운로드해 재생 |
-| 비고 | IP는 화면/로그에 남기지 않는 기존 원칙에 따라 `mDNS`(`snow.local`)를 우선 안내. 환경에 따라 mDNS 해석이 안 될 수 있어, 필요 시 라우터에서 IP를 직접 확인 |
+| 청취 확인 | WiFi 연결 직후 3초 자동 녹음 → 로컬 웹서버(`http://<Snow IP>/`)에서 재생, `/mic.wav`에서 다운로드 |
+| 비고 | IP는 화면/로그에 남기지 않는 기존 원칙에 따라 `mDNS`(`snow.local`)를 우선 안내. 환경에 따라 mDNS 해석이 안 될 수 있어, 필요 시 라우터에서 IP를 직접 확인 (troubleshooting #15) |
+
+## Climate(온습도) 테스트 기준
+
+SHTC3 센서(I2C `0x70`)를 Wire 기반으로 직접 구현했습니다(16비트 커맨드 전송 → 6바이트 응답,
+CRC8 검증). 부팅 시 e-paper 전원이 켜진 뒤에야 안정적으로 응답하는 것이 확인되어, 첫 읽기는
+디스플레이 모듈 초기화 이후에 수행합니다.
+
+| 항목 | 값 |
+| --- | --- |
+| 센서 | SHTC3 (I2C 주소 `0x70`) |
+| 측정 주기 | 30초 (loop 기준) |
+| 확인 이벤트 | `climate_read`, `climate_read_failed` |
+| 화면 표시 | 날짜 바로 아래 줄에 "OO.OC OO%" 형식으로 표시 |
+| 비고 | 부팅 직후(디스플레이 전원 초기화 전) 읽으면 3회 재시도에도 계속 실패함 — 읽기 시점을 `DEV_Module_Init()` 이후로 옮겨서 해결 (troubleshooting 참고) |
 
 ## 배터리 측정 기준
 

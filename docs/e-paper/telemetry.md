@@ -66,6 +66,8 @@ Snow firmware의 Serial Monitor 로그를 사람이 읽는 임시 문자열이 �
 | `mic_recorder_started` | `info` | 마이크 녹음용 로컬 웹서버 시작 완료 |
 | `mic_recorder_failed` | `warning` | 녹음 버퍼 할당 또는 mDNS 시작 실패. 실패해도 웹서버 자체는 계속 시작 시도 |
 | `mic_clip_recorded` | `info` | 자동 녹음 완료. `details.samples`로 샘플 수 확인 |
+| `climate_read` | `info` | SHTC3 온습도 읽기 성공. `details.temperature_c`/`details.humidity_percent` |
+| `climate_read_failed` | `warning` | wakeup/measure/read/CRC 중 한 단계 실패 (3회 재시도 후에도 실패 시) |
 | `bluetooth_init_start` | `info` | BLE advertising 초기화 시작 |
 | `bluetooth_advertising_started` | `info` | BLE peripheral advertising 시작 또는 재시작 |
 | `bluetooth_client_connected` | `info` | BLE client 연결 확인 |
@@ -241,8 +243,48 @@ Speaker와 동일한 ES8311 코덱의 analog mic 입력을 사용합니다. I2S�
 | --- | --- |
 | 코덱 초기화 | 성공 (Speaker와 공유, `speaker_init_failed` 없음) |
 | `mic_level_read` peak | 평상시 80~260, 소리 낼 때 450~1200대로 상승 |
-| 녹음 길이 | 720000 samples (30초) |
+| 녹음 길이 | 72000 samples (3초) |
 | 실기기 청취 | 확인함 (mDNS는 환경에 따라 실패, IP 직접 접속으로 확인) |
+
+---
+
+## Climate(온습도) 확인 기준
+
+SHTC3 센서를 Wire로 직접 제어합니다(16비트 커맨드 → wakeup/measure, 6바이트 응답 → CRC8 검증 →
+온도/습도 계산). 부팅 직후 e-paper 디스플레이 모듈이 전원을 올리기 전에는 이 센서가 응답하지
+않는 것이 확인되어, 첫 읽기는 `DEV_Module_Init()` 이후로 미뤘다(자세한 내용은
+troubleshooting.md 참고).
+
+펌웨어 기준:
+
+| 항목 | 값 |
+| --- | --- |
+| firmware version | `0.0.8` |
+| feature marker | `climate` |
+| 센서 | SHTC3 (I2C 주소 `0x70`) |
+| 측정 주기 | 30초 (loop 기준) |
+
+확인 이벤트:
+
+| 이벤트 | 판정 기준 |
+| --- | --- |
+| `climate_read` | `details.temperature_c`/`details.humidity_percent` 값이 합리적인 범위인지 확인 |
+| `climate_read_failed` | 3회 재시도 후에도 발생하면 실제 하드웨어/타이밍 문제로 판단 |
+
+테스트 절차:
+
+1. Arduino IDE에서 `snow-status-card.ino`를 업로드합니다.
+2. Serial Monitor `115200`에서 `firmware_version`의 `features`에 `climate`가 있는지 확인합니다.
+3. `climate_read` 이벤트가 에러 없이 출력되는지 확인합니다.
+4. e-paper 화면 날짜 바로 아래 줄에 "OO.OC OO%" 형식으로 값이 표시되는지 확인합니다.
+
+실제 Snow 확인값:
+
+| 항목 | 값 |
+| --- | --- |
+| 온도 | 약 26~32°C (실내 환경 기준, 센서 자체 발열 보정 -4°C 적용) |
+| 습도 | 약 33~38% |
+| 화면 표시 | 확인함 |
 
 ---
 
