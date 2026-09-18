@@ -75,6 +75,10 @@ static const char* eventToString(TelemetryEvent event) {
       return "rtc_write";
     case RTC_WRITE_FAILED:
       return "rtc_write_failed";
+    case WEATHER_FETCH:
+      return "weather_fetch";
+    case WEATHER_FETCH_FAILED:
+      return "weather_fetch_failed";
     case BLUETOOTH_INIT_START:
       return "bluetooth_init_start";
     case BLUETOOTH_ADVERTISING_STARTED:

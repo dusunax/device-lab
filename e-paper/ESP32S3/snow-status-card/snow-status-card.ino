@@ -13,6 +13,7 @@
 #include "src/snow_mic_recorder.h"
 #include "src/snow_climate.h"
 #include "src/snow_rtc.h"
+#include "src/snow_weather.h"
 #include "src/waveshare_epaper_1in54g/EPD_1in54g.h"
 #include "src/waveshare_epaper_1in54g/GUI_Paint.h"
 #include "src/waveshare_epaper_1in54g/fonts.h"
@@ -25,7 +26,7 @@
 #error "Snow needs Tools > USB CDC On Boot > Enabled to show Serial Monitor logs. Enable it, then compile/upload again."
 #endif
 
-#define SNOW_FIRMWARE_VERSION "0.0.9"
+#define SNOW_FIRMWARE_VERSION "0.1.0"
 #define SNOW_I2C_SDA_PIN 47
 #define SNOW_I2C_SCL_PIN 48
 // Vendor example calls this Audio_PWR_PIN; it actually gates the whole
@@ -55,7 +56,7 @@ bool bleOk = false;
 bool bleConnected = false;
 int lastBatteryVoltageMv = 0;
 char dateLine[20] = SNOW_DATE_UNKNOWN;
-char climateLine[16] = "";
+char climateLine[24] = "";
 // Non-empty while a passkey is displayed for pairing; shown instead of "SNOW READY".
 char pairingPasskeyLine[8] = "";
 
@@ -235,6 +236,16 @@ void logClimate() {
   snprintf(climateLine, sizeof(climateLine), "%.1fC %.0f%%", reading.temperatureC, reading.humidityPercent);
 }
 
+void logWeather() {
+  WeatherReading weather = fetchWeather(WEATHER_LATITUDE, WEATHER_LONGITUDE);
+  if (!weather.readOk) {
+    return;
+  }
+  char suffix[10];
+  snprintf(suffix, sizeof(suffix), " %s", weatherCodeToText(weather.weatherCode));
+  strncat(climateLine, suffix, sizeof(climateLine) - strlen(climateLine) - 1);
+}
+
 void logRtc() {
   readRtcTime();
 }
@@ -337,7 +348,7 @@ void setup() {
   delay(2000);  // Give Arduino IDE Serial Monitor time to attach after USB reset.
   telemetryLog(TELEMETRY_INFO, SYSTEM_START, "Snow status-card firmware started", "{\"baudrate\":115200}");
   char versionDetails[192];
-  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security,speaker,microphone,climate,rtc\"}", SNOW_FIRMWARE_VERSION);
+  snprintf(versionDetails, sizeof(versionDetails), "{\"version\":\"%s\",\"sketch\":\"snow-status-card\",\"features\":\"json_telemetry,battery_adc,i2c_scanner,ble_advertising,ble_data,ble_security,speaker,microphone,climate,rtc,http,weather\"}", SNOW_FIRMWARE_VERSION);
   telemetryLog(TELEMETRY_INFO, FIRMWARE_VERSION, "Snow firmware version", versionDetails);
 
   pinMode(SNOW_PERIPHERAL_PWR_PIN, OUTPUT);
@@ -380,6 +391,7 @@ void setup() {
   wifiOk = connectWiFi(WIFI_SSID, WIFI_PASSWORD);
   if (wifiOk) {
     updateTodayDate();
+    logWeather();
     if (initMicRecorder()) {
       recordMicClip();
     }

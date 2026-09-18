@@ -72,6 +72,8 @@ Snow firmware의 Serial Monitor 로그를 사람이 읽는 임시 문자열이 �
 | `rtc_read_failed` | `warning` | 레지스터 쓰기 또는 읽기 실패 |
 | `rtc_write` | `info` | NTP 동기화 성공 직후 RTC에 시각 반영 완료 |
 | `rtc_write_failed` | `warning` | RTC 시각 쓰기 실패 |
+| `weather_fetch` | `info` | Open-Meteo 조회 성공. `details.temperature_c`/`details.weather_code` |
+| `weather_fetch_failed` | `warning` | WiFi 미연결, HTTP 오류, 또는 응답 파싱 실패 |
 | `bluetooth_init_start` | `info` | BLE advertising 초기화 시작 |
 | `bluetooth_advertising_started` | `info` | BLE peripheral advertising 시작 또는 재시작 |
 | `bluetooth_client_connected` | `info` | BLE client 연결 확인 |
@@ -352,6 +354,46 @@ NTP 재동기화 없이 RTC 자체 크리스탈만으로 시간이 유지되는�
 | 부팅 직후 첫 `rtc_read` | `2026-09-18 22:17:18` |
 | `oscillator_stopped` | `false` |
 | 판정 | 실제 경과 시간과 거의 정확히 일치(오차 2초 이내, 대부분 부팅 지연) — RTC 자체 유지 확인 |
+
+---
+
+## HTTP / 날씨 확인 기준
+
+`HTTPClient`+`WiFiClientSecure`로 Open-Meteo 현재 날씨 API를 호출합니다(HTTPS,
+`setInsecure()`로 인증서 검증 생략). 별도 JSON 라이브러리 없이 `temperature`/`weathercode`
+두 필드만 문자열 탐색으로 파싱합니다.
+
+펌웨어 기준:
+
+| 항목 | 값 |
+| --- | --- |
+| firmware version | `0.1.0` |
+| feature marker | `http`, `weather` |
+| API | `https://api.open-meteo.com/v1/forecast` |
+| 위치 | `secrets.h`의 `WEATHER_LATITUDE`/`WEATHER_LONGITUDE` |
+
+확인 이벤트:
+
+| 이벤트 | 판정 기준 |
+| --- | --- |
+| `weather_fetch` | `details.temperature_c`가 합리적인 범위이고 `details.weather_code`가 0 또는 고정값으로만 나오지 않는지 확인 |
+| `weather_fetch_failed` | WiFi 미연결/HTTP 오류/파싱 실패 중 어느 단계인지 message로 구분 |
+
+테스트 절차:
+
+1. Arduino IDE에서 `snow-status-card.ino`를 업로드합니다.
+2. Serial Monitor `115200`에서 `firmware_version`의 `features`에 `http`, `weather`가 있는지 확인합니다.
+3. WiFi 연결 및 NTP 동기화 직후 `weather_fetch`가 에러 없이 출력되는지 확인합니다.
+4. e-paper 화면 온습도 줄에 이어서 날씨 텍스트(CLEAR/CLOUDY/RAIN 등)가 표시되는지 확인합니다.
+
+실제 Snow 확인값:
+
+| 항목 | 값 |
+| --- | --- |
+| 최초 시도 | `temperature_c:0.0, weather_code:0` — 파싱 버그로 판명 (아래 참고) |
+| 파싱 버그 원인 | 응답에 `current_weather_units`(단위 라벨, `"temperature":"°C"`)가 `current_weather`(실제 값)보다 먼저 나와, 전체 payload에서 첫 `"temperature":` 매치가 단위 라벨을 가리킴 |
+| 수정 후 | `temperature_c:20.6, weather_code:1` (서울, 실제 날씨와 일치) |
+| 화면 표시 | 확인함 (온습도 줄에 이어서 표시) |
 
 ---
 
