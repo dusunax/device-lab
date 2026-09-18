@@ -44,6 +44,7 @@ e-paper/ESP32S3/snow-status-card/
   src/snow_mic_recorder.*     # 마이크 레벨/녹음, WiFi 로컬 웹서버(wav 다운로드)
   src/snow_climate.*          # SHTC3 온습도 읽기(Wire 직접 구현, CRC8 검증)
   src/snow_rtc.*               # PCF85063 RTC 읽기/쓰기(Wire 직접 구현, BCD 레지스터)
+  src/snow_weather.*           # Open-Meteo HTTPS 날씨 조회
   src/waveshare_epaper_1in54g -> vendor/waveshare_epaper_1in54g
   src/es8311 -> vendor/es8311
 
@@ -136,6 +137,20 @@ PCF85063 RTC(I2C `0x51`)를 Wire 기반으로 직접 구현했습니다(BCD 레�
 | 확인 이벤트 | `rtc_read`, `rtc_read_failed`, `rtc_write`, `rtc_write_failed` |
 | 시간 설정 | NTP 동기화 성공 직후 `writeRtcTime()`으로 RTC에 반영, 곧바로 재읽기로 확인 |
 | 비고 | Climate와 동일하게 `SNOW_PERIPHERAL_PWR_PIN` 전원 레일 공유. `oscillator_stopped` 플래그로 RTC 배터리/전원 유지 여부 확인 가능(다음 "RTC 유지" 항목에서 활용) |
+
+## HTTP / 날씨 테스트 기준
+
+`HTTPClient`(내장 라이브러리) + `WiFiClientSecure`로 Open-Meteo(무료, API 키 불필요) 현재
+날씨를 조회합니다. 응답은 별도 JSON 라이브러리 없이 필요한 두 필드(`temperature`,
+`weathercode`)만 문자열 탐색으로 파싱합니다.
+
+| 항목 | 값 |
+| --- | --- |
+| API | `https://api.open-meteo.com/v1/forecast` (HTTPS, `WiFiClientSecure::setInsecure()`로 인증서 검증 생략) |
+| 위치 | `secrets.h`의 `WEATHER_LATITUDE`/`WEATHER_LONGITUDE` (커밋 제외, 예시는 서울) |
+| 확인 이벤트 | `weather_fetch`, `weather_fetch_failed` |
+| 화면 표시 | 온습도 줄에 이어서 날씨 텍스트(CLEAR/CLOUDY/RAIN/SNOW/FOG/STORM) 표시 |
+| 비고 | 응답에 `current_weather_units`(단위 라벨) 블록이 `current_weather`(실제 값)보다 먼저 나와서, 전체 payload가 아니라 `current_weather` 키 이후 구간에서만 탐색해야 함 |
 
 ## 배터리 측정 기준
 
